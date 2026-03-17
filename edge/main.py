@@ -53,7 +53,11 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Camera
     # ------------------------------------------------------------------
-    camera = CameraSource(config, frame_queue)
+    camera = CameraSource(
+        source=config.get("camera.source"),
+        fps=int(config.get("camera.fps", 15)),
+        frame_queue=frame_queue,
+    )
 
     # ------------------------------------------------------------------
     # Inference engine + model manager

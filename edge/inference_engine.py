@@ -183,7 +183,7 @@ class InferenceEngine:
 
             try:
                 results = self.model.track(
-                    processed, persist=True, tracker="bytetrack", verbose=False
+                    processed, persist=True, tracker="bytetrack.yaml", verbose=False
                 )
             except Exception as exc:  # pragma: no cover
                 logger.warning("Inference error: %s", exc)

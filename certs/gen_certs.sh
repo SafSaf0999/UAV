@@ -74,12 +74,20 @@ if should_generate "$SECRETS_DIR/server.crt"; then
         -out "$SECRETS_DIR/server.csr" \
         -subj "/CN=${SERVER_CN}/O=AntiUAV/OU=Broker"
 
+    # Build SAN extension — always include localhost, add IP if SERVER_IP is set
+    SAN="DNS:localhost,DNS:${SERVER_CN}"
+    if [[ -n "${SERVER_IP:-}" ]]; then
+        SAN="${SAN},IP:${SERVER_IP}"
+        info "Adding IP SAN: ${SERVER_IP}"
+    fi
+
     openssl x509 -req \
         -days "$DAYS" \
         -in "$SECRETS_DIR/server.csr" \
         -CA "$SECRETS_DIR/ca.crt" \
         -CAkey "$SECRETS_DIR/ca.key" \
         -CAcreateserial \
+        -extfile <(echo "subjectAltName=${SAN}") \
         -out "$SECRETS_DIR/server.crt"
 
     rm -f "$SECRETS_DIR/server.csr"

@@ -26,9 +26,12 @@ UFW_PORTS = [
 
 DEFAULTS = {
     "device_id":        "edge-01",
-    "mqtt_host":        "10.42.0.1",   # typical hotspot gateway IP
+    "mqtt_host":        "10.42.0.1",
     "mqtt_port":        "8883",
-    "camera_source":    "http://192.168.43.1:8080/video",  # IP Webcam default
+    "ca_cert":          "./secrets/ca.crt",
+    "client_cert":      "./secrets/edge-01.crt",
+    "client_key":       "./secrets/edge-01.key",
+    "camera_source":    "http://192.168.43.1:8080/video",
     "camera_fps":       "15",
     "model_path":       "",
     "active_model":     "daylight-v1",
@@ -63,6 +66,11 @@ def build_config(v: dict) -> dict:
         "mqtt": {
             "host": v["mqtt_host"],
             "port": int(v["mqtt_port"]),
+            "tls": {
+                "ca_cert": v["ca_cert"],
+                "client_cert": v["client_cert"],
+                "client_key": v["client_key"],
+            },
         },
         "camera": {
             "source": v["camera_source"],
@@ -95,7 +103,6 @@ def build_config(v: dict) -> dict:
         },
     }
 
-    # Add model profile if a path was given
     if v["model_path"]:
         cfg["model_profiles"].append({
             "name": v["active_model"],
@@ -187,6 +194,10 @@ class EdgeLauncher(tk.Tk):
             self._vars["device_id"].set(raw.get("device_id", DEFAULTS["device_id"]))
             self._vars["mqtt_host"].set(raw.get("mqtt", {}).get("host", DEFAULTS["mqtt_host"]))
             self._vars["mqtt_port"].set(str(raw.get("mqtt", {}).get("port", DEFAULTS["mqtt_port"])))
+            tls = raw.get("mqtt", {}).get("tls", {})
+            self._vars["ca_cert"].set(tls.get("ca_cert", DEFAULTS["ca_cert"]))
+            self._vars["client_cert"].set(tls.get("client_cert", DEFAULTS["client_cert"]))
+            self._vars["client_key"].set(tls.get("client_key", DEFAULTS["client_key"]))
             self._vars["camera_source"].set(raw.get("camera", {}).get("source", DEFAULTS["camera_source"]))
             self._vars["camera_fps"].set(str(raw.get("camera", {}).get("fps", DEFAULTS["camera_fps"])))
             self._vars["active_model"].set(raw.get("active_model", DEFAULTS["active_model"]))
@@ -229,6 +240,9 @@ class EdgeLauncher(tk.Tk):
         mqtt = section(self, "📡  MQTT Broker (Main Device)")
         row(mqtt, 1, "Main Device IP", "mqtt_host")
         row(mqtt, 2, "MQTT Port", "mqtt_port")
+        row(mqtt, 3, "CA Cert path", "ca_cert", browse=True)
+        row(mqtt, 4, "Client Cert path", "client_cert", browse=True)
+        row(mqtt, 5, "Client Key path", "client_key", browse=True)
 
         # ── Model ──
         mdl = section(self, "🤖  Model")
@@ -291,10 +305,11 @@ class EdgeLauncher(tk.Tk):
     # ------------------------------------------------------------------
 
     def _browse(self, key):
-        path = filedialog.askopenfilename(
-            title="Select .pt model file",
-            filetypes=[("PyTorch model", "*.pt"), ("All files", "*.*")],
-        )
+        if key in ("ca_cert", "client_cert", "client_key"):
+            filetypes = [("Certificate/Key files", "*.crt *.key *.pem"), ("All files", "*.*")]
+        else:
+            filetypes = [("PyTorch model", "*.pt"), ("All files", "*.*")]
+        path = filedialog.askopenfilename(title="Select file", filetypes=filetypes)
         if path:
             self._vars[key].set(path)
 
@@ -320,13 +335,13 @@ class EdgeLauncher(tk.Tk):
         self._stop_btn.configure(state="normal")
         self._status_lbl.configure(text="● Running", fg="#22c55e")
 
-        edge_dir = os.path.join(os.path.dirname(__file__), "edge")
+        project_root = os.path.dirname(__file__)
 
         def _run():
-            self._log_line("$ python main.py\n")
+            self._log_line("$ python -m edge.main\n")
             self._proc = subprocess.Popen(
-                ["python", "main.py"],
-                cwd=edge_dir,
+                ["python", "-m", "edge.main"],
+                cwd=project_root,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1,
                 env={**os.environ, "EDGE_CONFIG": CONFIG_PATH},
