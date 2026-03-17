@@ -1,0 +1,123 @@
+services:
+
+  mosquitto:
+    build:
+      context: ./mosquitto
+    restart: unless-stopped
+    user: root
+    ports:
+      - "0.0.0.0:${MQTT_PORT:-8883}:8883"
+    environment:
+      MQTT_PORT: ${MQTT_PORT:-8883}
+      MQTT_TLS_CA: ${MQTT_TLS_CA:-/secrets/ca.crt}
+      MQTT_TLS_CERT: ${MQTT_TLS_CERT:-/secrets/server.crt}
+      MQTT_TLS_KEY: ${MQTT_TLS_KEY:-/secrets/server.key}
+      MQTT_AUTH_MODE: ${MQTT_AUTH_MODE:-cert}
+      MQTT_PASSWORD_FILE: ${MQTT_PASSWORD_FILE:-}
+    volumes:
+      - mosquitto-data:/mosquitto/data
+      - ../secrets:/secrets:ro
+    networks:
+      - uav-net
+
+  aggregation:
+    build:
+      context: ..
+      dockerfile: main/aggregation/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "${AGGREGATION_PORT:-8001}"
+    environment:
+      AGGREGATION_PORT: ${AGGREGATION_PORT:-8001}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      MQTT_AUTH_MODE: none
+      RADAR_ENABLED: ${RADAR_ENABLED:-false}
+    depends_on:
+      - mosquitto
+    networks:
+      - uav-net
+
+  frontend-builder:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_TILE_SERVER_URL: ${TILE_SERVER_URL:-https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png}
+        VITE_AGGREGATION_WS_URL: ${VITE_AGGREGATION_WS_URL:-ws://localhost:8080/ws}
+        VITE_SIGNALING_URL: ${VITE_SIGNALING_URL:-ws://localhost:8090}
+    volumes:
+      - frontend-dist:/vol
+
+  control-center:
+    build:
+      context: ..
+      dockerfile: main/control-center/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${CONTROL_CENTER_PORT:-8080}:8080"
+    environment:
+      CONTROL_CENTER_PORT: ${CONTROL_CENTER_PORT:-8080}
+      AGGREGATION_URL: http://aggregation:${AGGREGATION_PORT:-8001}
+      AGGREGATION_WS_URL: ws://aggregation:${AGGREGATION_PORT:-8001}/ws
+      REMOTE_ACCESS_MODE: ${REMOTE_ACCESS_MODE:-vpn}
+      HTTPS_TOKEN: ${HTTPS_TOKEN:-changeme}
+    volumes:
+      - frontend-dist:/app/control_center/dist:ro
+    depends_on:
+      - aggregation
+      - frontend-builder
+    networks:
+      - uav-net
+
+  signaling:
+    build:
+      context: ..
+      dockerfile: main/signaling/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${SIGNALING_PORT:-8090}:8090"
+    environment:
+      SIGNALING_PORT: ${SIGNALING_PORT:-8090}
+    networks:
+      - uav-net
+
+  # tile-server disabled — map uses OSM tiles directly from the internet.
+  # To enable self-hosted tiles, import a .osm.pbf file first:
+  #   docker compose run tile-server import
+  # then uncomment this service.
+  # tile-server:
+  #   image: overv/openstreetmap-tile-server
+  #   restart: unless-stopped
+  #   ports:
+  #     - "127.0.0.1:8070:80"
+  #   volumes:
+  #     - tile-data:/data/database
+  #   networks:
+  #     - uav-net
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    profiles:
+      - https
+    ports:
+      - "0.0.0.0:443:443"
+    environment:
+      HTTPS_TOKEN: ${HTTPS_TOKEN:-changeme}
+      CONTROL_CENTER_PORT: ${CONTROL_CENTER_PORT:-8080}
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../secrets:/secrets:ro
+    depends_on:
+      - control-center
+    networks:
+      - uav-net
+
+networks:
+  uav-net:
+    driver: bridge
+
+volumes:
+  mosquitto-data:
+  frontend-dist:

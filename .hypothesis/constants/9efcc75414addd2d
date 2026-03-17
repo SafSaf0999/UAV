@@ -1,0 +1,4 @@
+# file: /home/safsaf/Projects/UAV/UAV/edge/config.py
+# hypothesis_version: 6.151.9
+
+['.', './config.yaml', 'EDGE_CONFIG', 'active_model', 'camera.source', 'device_id', 'model_profiles', 'mqtt.host', 'mqtt.port', 'name', 'r', 'utf-8']

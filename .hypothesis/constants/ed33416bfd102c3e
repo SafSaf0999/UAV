@@ -1,0 +1,4 @@
+# file: /home/safsaf/Projects/UAV/UAV/edge/command_handler.py
+# hypothesis_version: 6.151.9
+
+['action', 'device_id', 'error', 'model_name', 'start_stream', 'status', 'stop_stream', 'switch_model', 'unknown', 'utf-8']

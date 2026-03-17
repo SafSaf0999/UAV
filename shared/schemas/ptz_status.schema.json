@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["device_id", "timestamp"],
+  "properties": {
+    "device_id": { "type": "string" },
+    "zoom_level": { "type": "number" },
+    "pan_angle": { "type": "number" },
+    "tilt_angle": { "type": "number" },
+    "timestamp": { "type": "string", "format": "date-time" }
+  }
+}

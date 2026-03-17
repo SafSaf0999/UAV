@@ -1,0 +1,4 @@
+# file: /home/safsaf/Projects/UAV/UAV/edge/ptz_controller.py
+# hypothesis_version: 6.151.9
+
+[-1.0, 0.0, 0.1, 0.5, 1.0, 8.0, 129, 255, 9600, 52381, 65535, '/dev/ttyUSB0', 'AbsoluteMove', 'ContinuousMove', 'GotoHomePosition', 'PanTilt', 'Stop', 'Zoom', 'admin', 'arduino', 'command', 'device_id', 'digital', 'home', 'last_command', 'onvif', 'pan', 'pan_left', 'pan_offset', 'pan_right', 'pan_tilt_absolute', 'params', 'ptz.baudrate', 'ptz.enabled', 'ptz.hardware_type', 'ptz.host', 'ptz.password', 'ptz.port', 'ptz.serial_port', 'ptz.username', 'speed', 'step', 'stop', 'success', 'tilt', 'tilt_down', 'tilt_offset', 'tilt_up', 'timestamp', 'utf-8', 'visca_ip', 'visca_serial', 'x', 'y', 'zoom', 'zoom_absolute', 'zoom_in', 'zoom_level', 'zoom_out']

@@ -1,0 +1,4 @@
+# file: /home/safsaf/Projects/UAV/UAV/edge/mqtt_client.py
+# hypothesis_version: 6.151.9
+
+[1.0, 60.0, 8883, 'MQTT client stopped', 'active_model', 'device_id', 'lat', 'localhost', 'location.lat', 'location.lon', 'lon', 'mqtt-reconnect', 'mqtt.host', 'mqtt.password', 'mqtt.port', 'mqtt.tls.ca_cert', 'mqtt.tls.client_cert', 'mqtt.tls.client_key', 'mqtt.username', 'offline', 'online', 'status', 'timestamp']
