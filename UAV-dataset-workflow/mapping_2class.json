@@ -1,0 +1,10 @@
+{
+  "drone": "Drone",
+  "Drone": "Drone",
+  "UAV": "Drone",
+  "uav": "Drone",
+  "Bird": "Bird",
+  "bird": "Bird",
+  "- bird": "Bird",
+  "fixed wing UAV dataset - v1 fixed wing UAV": "Drone"
+}

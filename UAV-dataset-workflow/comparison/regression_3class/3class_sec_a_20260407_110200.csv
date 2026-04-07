@@ -1,0 +1,9 @@
+model,test_set,map50,map50_95,precision,recall
+TriClass-Cloud,3class-val,0.8938,0.578,0.8673,0.8328
+TriClass-Cloud,anti-uav-test,0.9795,0.7325,0.962,0.9407
+TriClass-Cloud,uavdetector-test,0.8863,0.4327,0.8895,0.8084
+TriClass-Cloud,birds-valid,0.365,0.1446,0.6231,0.3371
+TriClass-Cloud-FT,3class-val,0.8763,0.5668,0.8803,0.8241
+TriClass-Cloud-FT,anti-uav-test,0.978,0.7219,0.9724,0.9384
+TriClass-Cloud-FT,uavdetector-test,0.8983,0.4456,0.882,0.8508
+TriClass-Cloud-FT,birds-valid,0.2715,0.1014,0.605,0.2523
