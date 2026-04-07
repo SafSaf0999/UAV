@@ -107,7 +107,7 @@ def test_get_device_after_status_update(client):
             "timestamp": "2024-01-01T00:00:00Z",
         })
 
-    asyncio.get_event_loop().run_until_complete(_update())
+    asyncio.run(_update())
 
     resp = c.get("/devices/dev-003")
     assert resp.status_code == 200
@@ -125,7 +125,7 @@ def test_list_devices_returns_all(client):
                 "timestamp": "2024-01-01T00:00:00Z",
             })
 
-    asyncio.get_event_loop().run_until_complete(_update())
+    asyncio.run(_update())
 
     resp = c.get("/devices")
     assert resp.status_code == 200

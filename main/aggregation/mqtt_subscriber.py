@@ -27,6 +27,8 @@ TOPICS = [
     "uav/status/#",
     "uav/ptz/status/#",
     "uav/sensor/#",
+    "uav/health/#",
+    "uav/log/#",
 ]
 
 RADAR_TOPIC = "uav/radar/#"
@@ -151,6 +153,12 @@ class MQTTSubscriber:
 
         elif topic.startswith("uav/sensor/"):
             await self._registry.update_sensor(data)
+
+        elif topic.startswith("uav/health/"):
+            await self._registry.update_health(data)
+
+        elif topic.startswith("uav/log/"):
+            await self._registry.update_log(data)
 
         elif topic.startswith("uav/radar/") and self._radar_normalizer:
             normalized = self._radar_normalizer(data)

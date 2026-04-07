@@ -1,4 +1,0 @@
-# file: /home/safsaf/Projects/UAV/UAV/edge/main.py
-# hypothesis_version: 6.151.9
-
-[0.5, 640, 'Edge device stopped', 'Estimator enabled', 'SensorReader enabled', '__main__', 'camera.width_px', 'estimator.enabled', 'sensor.enabled']

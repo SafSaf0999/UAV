@@ -1,4 +1,0 @@
-# file: /home/safsaf/Projects/UAV/UAV/edge/estimator.py
-# hypothesis_version: 6.151.9
-
-[0.5, 2.0, 60.0, 180, 'bbox', 'detections', 'dx', 'dy', 'estimated_distance_m', 'estimator.enabled', 'estimator.fov_deg', 'track_id', 'trajectory_vector']

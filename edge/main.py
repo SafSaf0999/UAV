@@ -38,6 +38,8 @@ def main() -> None:
     from edge.ptz_controller import PTZController
     from edge.payload import serialize, build_tracking_payload
     from edge.webrtc_streamer import WebRTCStreamer
+    from edge.health_reporter import HealthReporter
+    from edge.log_publisher import MQTTLogHandler
 
     # ------------------------------------------------------------------
     # Load config
@@ -132,6 +134,27 @@ def main() -> None:
     engine._on_payload = on_payload
 
     # ------------------------------------------------------------------
+    # Health reporter
+    # ------------------------------------------------------------------
+    health_reporter = HealthReporter(config, mqtt_client, engine, camera)
+
+    # ------------------------------------------------------------------
+    # MQTT log handler (WARNING+ logs published to uav/log/{device_id})
+    # ------------------------------------------------------------------
+    import logging.handlers as _log_handlers
+    _log_dir = "logs"
+    import os as _os
+    _os.makedirs(_log_dir, exist_ok=True)
+    _file_handler = _log_handlers.RotatingFileHandler(
+        f"{_log_dir}/edge.log", maxBytes=50 * 1024 * 1024, backupCount=7
+    )
+    _file_handler.setLevel(logging.DEBUG)
+    logging.getLogger().addHandler(_file_handler)
+
+    _mqtt_log_handler = MQTTLogHandler(mqtt_client, config.device_id)
+    logging.getLogger().addHandler(_mqtt_log_handler)
+
+    # ------------------------------------------------------------------
     # Start all components
     # ------------------------------------------------------------------
     camera.start()
@@ -139,6 +162,7 @@ def main() -> None:
     mqtt_client.start()
     if sensor_reader is not None:
         sensor_reader.start()
+    health_reporter.start()
 
     logger.info("All components started")
 
@@ -159,6 +183,7 @@ def main() -> None:
             time.sleep(0.5)
     finally:
         logger.info("Shutting down edge device '%s'", config.device_id)
+        health_reporter.stop()
         webrtc_streamer.stop()
         if sensor_reader is not None:
             sensor_reader.stop()

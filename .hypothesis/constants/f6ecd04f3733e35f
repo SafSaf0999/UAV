@@ -1,4 +1,0 @@
-# file: /home/safsaf/Projects/UAV/UAV/edge/payload.py
-# hypothesis_version: 6.151.9
-
-['active_model', 'bbox', 'camera', 'confidence', 'detections', 'device_id', 'dx_px_per_frame', 'dy_px_per_frame', 'estimated_distance_m', 'frame_id', 'label', 'sensor_data', 'source', 'timestamp', 'track_id', 'trajectory_vector', 'utf-8']

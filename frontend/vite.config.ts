@@ -21,5 +21,8 @@ export default defineConfig({
     __SIGNALING_URL__: JSON.stringify(
       process.env.VITE_SIGNALING_URL || "ws://localhost:8765"
     ),
+    __TURN_SERVER_URL__: JSON.stringify(
+      process.env.VITE_TURN_SERVER_URL || ""
+    ),
   },
 });

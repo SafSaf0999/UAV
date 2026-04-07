@@ -3,66 +3,56 @@ Control center backend — FastAPI app.
 
 Serves the React frontend static files from dist/.
 Proxies REST and WebSocket requests to the aggregation service.
-Enforces Bearer token auth when REMOTE_ACCESS_MODE=https.
-Logs a startup warning when non-VPN mode is active.
+JWT auth enforced on all /api/* and /ws routes.
 
-Requirements: 6.1, 15.2, 15.3, 15.5
+Requirements: 6.1, 15.2, 15.3, 15.5, v2-1.x
 """
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware import Middleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from .auth import (
+    audit_middleware,
+    init_db,
+    jwt_auth_middleware,
+    router as auth_router,
+)
+
 logger = logging.getLogger(__name__)
 
-REMOTE_ACCESS_MODE = os.environ.get("REMOTE_ACCESS_MODE", "vpn")
-HTTPS_TOKEN = os.environ.get("HTTPS_TOKEN", "")
 AGGREGATION_URL = os.environ.get("AGGREGATION_URL", "http://aggregation:8000")
 AGGREGATION_WS_URL = os.environ.get("AGGREGATION_WS_URL", "ws://aggregation:8000/ws")
 
 DIST_DIR = Path(__file__).parent / "dist"
 
-# ---------------------------------------------------------------------------
-# Auth helper
-# ---------------------------------------------------------------------------
-
-def _check_auth(request: Request) -> Optional[Response]:
-    """Return a 401 Response if auth fails in HTTPS mode, else None."""
-    if REMOTE_ACCESS_MODE != "https":
-        return None
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer ") or auth_header[7:] != HTTPS_TOKEN:
-        return Response(
-            content='{"detail":"Unauthorized"}',
-            status_code=401,
-            media_type="application/json",
-        )
-    return None
-
 
 # ---------------------------------------------------------------------------
-# App
+# App lifespan
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="Anti-UAV Control Center")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
 
 
-@app.on_event("startup")
-async def _startup() -> None:
-    if REMOTE_ACCESS_MODE != "vpn":
-        logger.warning(
-            "Control center: REMOTE_ACCESS_MODE=%s — non-VPN mode active. "
-            "Ensure HTTPS and token auth are properly configured.",
-            REMOTE_ACCESS_MODE,
-        )
-    else:
-        logger.info("Control center: VPN mode active")
+app = FastAPI(title="Anti-UAV Control Center", lifespan=lifespan)
+
+# Middleware (order matters: jwt first, then audit)
+app.middleware("http")(jwt_auth_middleware)
+app.middleware("http")(audit_middleware)
+
+# Auth routes (exempt from JWT middleware)
+app.include_router(auth_router)
 
 
 # ---------------------------------------------------------------------------
@@ -71,9 +61,6 @@ async def _startup() -> None:
 
 @app.get("/api/devices")
 async def proxy_devices(request: Request):
-    err = _check_auth(request)
-    if err:
-        return err
     async with httpx.AsyncClient() as client:
         resp = await client.get(f"{AGGREGATION_URL}/devices")
     return JSONResponse(content=resp.json(), status_code=resp.status_code)
@@ -81,19 +68,20 @@ async def proxy_devices(request: Request):
 
 @app.get("/api/devices/{device_id}")
 async def proxy_device(device_id: str, request: Request):
-    err = _check_auth(request)
-    if err:
-        return err
     async with httpx.AsyncClient() as client:
         resp = await client.get(f"{AGGREGATION_URL}/devices/{device_id}")
     return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
 
+@app.get("/api/devices/{device_id}/health")
+async def proxy_device_health(device_id: str, request: Request):
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{AGGREGATION_URL}/devices/{device_id}/health")
+    return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+
 @app.post("/api/command/{device_id}")
 async def proxy_command(device_id: str, request: Request):
-    err = _check_auth(request)
-    if err:
-        return err
     body = await request.json()
     async with httpx.AsyncClient() as client:
         resp = await client.post(f"{AGGREGATION_URL}/command/{device_id}", json=body)
@@ -102,12 +90,17 @@ async def proxy_command(device_id: str, request: Request):
 
 @app.post("/api/ptz/{device_id}")
 async def proxy_ptz(device_id: str, request: Request):
-    err = _check_auth(request)
-    if err:
-        return err
     body = await request.json()
     async with httpx.AsyncClient() as client:
         resp = await client.post(f"{AGGREGATION_URL}/ptz/{device_id}", json=body)
+    return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+
+@app.get("/api/logs/{device_id}")
+async def proxy_logs(device_id: str, request: Request):
+    params = dict(request.query_params)
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{AGGREGATION_URL}/logs/{device_id}", params=params)
     return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
 
@@ -117,19 +110,11 @@ async def proxy_ptz(device_id: str, request: Request):
 
 @app.websocket("/ws")
 async def proxy_websocket(websocket: WebSocket):
-    # Auth check for HTTPS mode
-    if REMOTE_ACCESS_MODE == "https":
-        token = websocket.query_params.get("token", "")
-        if token != HTTPS_TOKEN:
-            await websocket.close(code=4001)
-            return
-
     await websocket.accept()
     try:
         import websockets as ws_lib  # type: ignore
+        import asyncio
         async with ws_lib.connect(AGGREGATION_WS_URL) as agg_ws:
-            import asyncio
-
             async def forward_to_client():
                 async for msg in agg_ws:
                     await websocket.send_text(msg)
@@ -164,13 +149,7 @@ if DIST_DIR.exists():
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str, request: Request):
-    """Serve index.html for all non-API routes (SPA fallback)."""
-    # Skip auth for static assets
-    if full_path.startswith("api/"):
-        err = _check_auth(request)
-        if err:
-            return err
-
+    """Serve index.html for all non-API, non-auth routes (SPA fallback)."""
     index = DIST_DIR / "index.html"
     if index.exists():
         return FileResponse(str(index))

@@ -9,6 +9,7 @@
 
 import type { CommandPayload, PtzCommand } from "../types";
 import { deviceStore } from "./websocket";
+import { authFetch } from "../utils/auth";
 
 const COMMAND_TIMEOUT_MS = 5_000;
 
@@ -41,7 +42,7 @@ async function sendCommandWithTimeout(
   ackCheck: (device_id: string) => boolean
 ): Promise<void> {
   // Send the command
-  const resp = await fetch(endpoint, {
+  const resp = await authFetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

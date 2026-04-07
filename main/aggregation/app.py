@@ -134,6 +134,20 @@ async def get_device(device_id: str):
     return JSONResponse(content=state)
 
 
+@app.get("/devices/{device_id}/health")
+async def get_device_health(device_id: str):
+    state = await registry.get_device(device_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"Device '{device_id}' not found")
+    return JSONResponse(content=state.get("health"))
+
+
+@app.get("/logs/{device_id}")
+async def get_logs(device_id: str, limit: int = 100, level: Optional[str] = None):
+    entries = await registry.get_logs(device_id, limit=limit, level=level)
+    return JSONResponse(content=entries)
+
+
 @app.post("/command/{device_id}")
 async def send_command(device_id: str, body: dict):
     """

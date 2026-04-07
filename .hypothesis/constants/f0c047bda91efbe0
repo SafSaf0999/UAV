@@ -1,4 +1,0 @@
-# file: /home/safsaf/Projects/UAV/UAV/edge/inference_engine.py
-# hypothesis_version: 6.151.9
-
-[0.01, 1.0, 2.0, 5.0, 'Inference error: %s', 'Loaded model from %s', 'active_model', 'bbox', 'bytetrack', 'camera.fps', 'camera_mode', 'confidence', 'detections', 'device_id', 'error', 'file_path', 'frame_id', 'label', 'model', 'model_profiles', 'model_swap_timeout_s', 'name', 'thermal', 'timestamp', 'track_id']

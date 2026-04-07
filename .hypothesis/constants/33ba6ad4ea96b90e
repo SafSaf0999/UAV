@@ -1,4 +1,0 @@
-# file: /home/safsaf/Projects/UAV/UAV/edge/sensor_reader.py
-# hypothesis_version: 6.151.9
-
-[-90.0, 0.0, 1.0, 90.0, 360.0, 4800, '$GPRMC', '$HCHDG', ',', '/dev/ttyUSB1', 'A', 'ascii', 'azimuth', 'compass_bearing_deg', 'device_id', 'http', 'ignore', 'orientation', 'pitch', 'pitch_deg', 'sensor-reader', 'sensor.baudrate', 'sensor.http_url', 'sensor.serial_port', 'sensor.source', 'serial_nmea', 'timestamp', 'utf-8']

@@ -75,6 +75,7 @@ class InferenceEngine:
         self.running = False
         self._thread: threading.Thread | None = None
         self.frame_id = 0
+        self._frame_timestamps: list[float] = []  # for rolling FPS
 
         # Load active model profile
         profiles = config.get("model_profiles") or []
@@ -192,6 +193,11 @@ class InferenceEngine:
             payload = self._build_payload(results)
             self.frame_id += 1
 
+            # Track frame timestamp for FPS calculation
+            self._frame_timestamps.append(time.time())
+            if len(self._frame_timestamps) > 30:
+                self._frame_timestamps = self._frame_timestamps[-30:]
+
             # Payload is available via callback or can be consumed by caller
             self._on_payload(payload)
 
@@ -202,6 +208,19 @@ class InferenceEngine:
         Called with each produced Tracking_Payload dict.
         Override or monkey-patch in tests / wiring code.
         """
+
+    @property
+    def current_fps(self) -> float:
+        """Rolling average FPS over the last 30 frames."""
+        now = time.time()
+        # Keep only timestamps within the last 5 seconds
+        self._frame_timestamps = [t for t in self._frame_timestamps if now - t < 5.0]
+        if len(self._frame_timestamps) < 2:
+            return 0.0
+        elapsed = self._frame_timestamps[-1] - self._frame_timestamps[0]
+        if elapsed <= 0:
+            return 0.0
+        return (len(self._frame_timestamps) - 1) / elapsed
 
     def start(self) -> None:
         """Start the inference loop in a background thread."""

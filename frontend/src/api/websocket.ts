@@ -7,9 +7,15 @@
 
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { DeviceState, WebSocketMessage } from "../types";
+import { getToken, clearToken } from "../utils/auth";
 
 declare const __AGGREGATION_WS_URL__: string;
-const WS_URL = __AGGREGATION_WS_URL__;
+
+function _wsUrl(): string {
+  const base = __AGGREGATION_WS_URL__;
+  const token = getToken();
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+}
 
 type Listener = (devices: Record<string, DeviceState>) => void;
 
@@ -21,7 +27,7 @@ class DeviceStateStore {
 
   connect(): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
-    this.ws = new WebSocket(WS_URL);
+    this.ws = new WebSocket(_wsUrl());
 
     this.ws.onmessage = (event) => {
       try {

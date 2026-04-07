@@ -263,3 +263,52 @@ sudo usermod -aG docker $USER
 | `secrets/` | Generated certs (never commit) |
 | `edge/main.py` | Edge device entry point |
 | `docker/docker-compose.yml` | Main device services |
+
+---
+
+## 12. Install Control Center as Android App (PWA)
+
+The Anti-UAV Control Center can be installed as a standalone app on Android — no app store required.
+
+1. Connect your Android phone to the same network as the main laptop (or via WireGuard VPN)
+2. Open **Chrome** on Android
+3. Navigate to `http://<main-laptop-ip>:8080`
+4. Log in with your credentials
+5. Tap the **⋮** menu (three dots) → **Add to Home Screen**
+6. Tap **Add** — the app installs with the UAV radar icon
+7. Launch from your home screen — it opens fullscreen with no browser chrome
+
+The PWA works offline for the last-known state and reconnects automatically when the network is available.
+
+---
+
+## 13. Remote Access via WireGuard (Android)
+
+For secure remote access from your phone when not on the local network:
+
+See `docker/wireguard/android-peer.md` for the full setup guide.
+
+Quick summary:
+1. Generate a WireGuard key pair for your phone on the main laptop
+2. Add the phone as a peer in the server WireGuard config
+3. Create a peer config file and generate a QR code with `qrencode`
+4. Import the QR code in the WireGuard Android app
+5. Connect — then access `http://10.0.0.1:8080` from your phone
+
+---
+
+## 14. First Login
+
+On first startup, the system creates a default admin account:
+
+- Username: `admin` (or the value of `BOOTSTRAP_ADMIN_USERNAME` in `.env`)
+- Password: `changeme` (or the value of `BOOTSTRAP_ADMIN_PASSWORD` in `.env`)
+
+**Change the password immediately** after first login via Settings → Users → Generate Invite → create a new admin account → deactivate the default one.
+
+To invite other users:
+1. Log in as admin
+2. Go to **Settings** → **Users**
+3. Click **Generate Invite**, choose role (viewer/admin), set expiry
+4. Share the token or the registration link with the new user
+5. They visit `/register?token=UAV-XXXX-XXXX` and create their account

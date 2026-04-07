@@ -1,4 +1,0 @@
-# file: /home/safsaf/Projects/UAV/UAV/main/aggregation/radar_normalizer.py
-# hypothesis_version: 6.151.9
-
-[0.0, 1.0, 10.0, 60.0, 'active_model', 'azimuth_deg', 'bbox', 'confidence', 'detections', 'device_id', 'frame_id', 'label', 'radar', 'radar-unknown', 'range_m', 'source', 'timestamp', 'track_id', 'x_m', 'y_m']

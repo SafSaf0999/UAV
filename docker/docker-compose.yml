@@ -62,8 +62,14 @@ services:
       AGGREGATION_WS_URL: ws://aggregation:${AGGREGATION_PORT:-8001}/ws
       REMOTE_ACCESS_MODE: ${REMOTE_ACCESS_MODE:-vpn}
       HTTPS_TOKEN: ${HTTPS_TOKEN:-changeme}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_TTL_HOURS: ${JWT_TTL_HOURS:-8}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-changeme}
+      AUTH_DB_PATH: /app/data/auth.db
     volumes:
       - frontend-dist:/app/control_center/dist:ro
+      - control-center-data:/app/data
     depends_on:
       - aggregation
       - frontend-builder
@@ -76,9 +82,21 @@ services:
       dockerfile: main/signaling/Dockerfile
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${SIGNALING_PORT:-8090}:8090"
+      - "0.0.0.0:${SIGNALING_PORT:-8090}:8090"
     environment:
       SIGNALING_PORT: ${SIGNALING_PORT:-8090}
+    networks:
+      - uav-net
+
+  ha_bridge:
+    build:
+      context: ../main/ha_bridge
+    restart: unless-stopped
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+    depends_on:
+      - mosquitto
     networks:
       - uav-net
 
@@ -121,3 +139,4 @@ networks:
 volumes:
   mosquitto-data:
   frontend-dist:
+  control-center-data:

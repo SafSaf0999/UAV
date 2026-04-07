@@ -6,6 +6,7 @@
 
 import React from "react";
 import { useDevices } from "../api/websocket";
+import { authFetch } from "../utils/auth";
 import type { DeviceState } from "../types";
 
 interface Props {
@@ -13,7 +14,7 @@ interface Props {
 }
 
 async function switchModel(device_id: string, model_name: string): Promise<void> {
-  await fetch(`/api/command/${device_id}`, {
+  await authFetch(`/api/command/${device_id}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "switch_model", model_name }),

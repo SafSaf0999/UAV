@@ -1,16 +1,17 @@
 /**
- * Map view — Leaflet.js map with device markers and detection alerts.
+ * Map view — Leaflet.js map with device markers and slide-in MapPanel.
  *
- * Requirements: 12.1–12.8, 12.10, 14.3
+ * Requirements: 12.1–12.8, 12.10, 14.3, v2-6.1–6.10
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, Marker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useDevices } from "../api/websocket";
+import { MapPanel } from "./MapPanel";
 import type { DeviceState } from "../types";
-const ALERT_CLEAR_MS = 10_000; // auto-clear alert after 10s
+const ALERT_CLEAR_MS = 10_000;
 
 // ---------------------------------------------------------------------------
 // Custom marker icons
@@ -56,6 +57,7 @@ interface AlertState {
 export function MapView() {
   const devices = useDevices();
   const [alerts, setAlerts] = useState<Record<string, AlertState>>({});
+  const [selectedDevice, setSelectedDevice] = useState<DeviceState | null>(null);
   const alertsRef = useRef(alerts);
   alertsRef.current = alerts;
 
@@ -116,6 +118,7 @@ export function MapView() {
             key={device.device_id}
             device={device}
             alert={alerts[device.device_id]}
+            onSelect={() => setSelectedDevice(device)}
             onDismiss={() =>
               setAlerts((prev: Record<string, AlertState>) => {
                 const next = { ...prev };
@@ -128,6 +131,14 @@ export function MapView() {
         ))}
         {allDevices.length === 0 && <NoDevicesOverlay />}
       </MapContainer>
+
+      {/* Slide-in device panel */}
+      {selectedDevice && (
+        <MapPanel
+          device={selectedDevice}
+          onClose={() => setSelectedDevice(null)}
+        />
+      )}
 
       {/* Unlocated devices panel */}
       {unlocated.length > 0 && (
@@ -199,10 +210,12 @@ function NoDevicesOverlay() {
 function DeviceMarker({
   device,
   alert,
+  onSelect,
   onDismiss,
 }: {
   device: DeviceState;
   alert?: AlertState;
+  onSelect: () => void;
   onDismiss: () => void;
 }) {
   const isRadar = device.last_tracking?.source === "radar";
@@ -210,26 +223,10 @@ function DeviceMarker({
   if (alert) icon = ICON_ALERT;
 
   return (
-    <Marker position={[device.lat!, device.lon!]} icon={icon}>
-      <Popup eventHandlers={{ remove: onDismiss }}>
-        <div style={{ minWidth: 160 }}>
-          <strong>{device.device_id}</strong>
-          {alert && (
-            <div style={{ marginTop: 6, color: "#ef4444" }}>
-              <div>⚠ Detection Alert</div>
-              <div style={{ fontSize: 12, color: "#6b7280" }}>
-                {new Date(alert.timestamp).toUTCString()}
-              </div>
-              <div>Detections: {alert.detection_count}</div>
-            </div>
-          )}
-          {!alert && (
-            <div style={{ marginTop: 4, color: "#9ca3af", fontSize: 12 }}>
-              Status: {device.status}
-            </div>
-          )}
-        </div>
-      </Popup>
-    </Marker>
+    <Marker
+      position={[device.lat!, device.lon!]}
+      icon={icon}
+      eventHandlers={{ click: onSelect }}
+    />
   );
 }

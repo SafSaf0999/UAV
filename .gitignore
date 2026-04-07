@@ -1,10 +1,12 @@
-# Secrets and certificates
+# ── Secrets and credentials ───────────────────────────────────────────────────
 secrets/
-.env
+docker/.env
 *.key
 *.crt
+*.srl
+auth.db
 
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
@@ -15,13 +17,46 @@ dist/
 build/
 .venv/
 venv/
+logs/
 
-# Node
+# ── Node / Frontend ───────────────────────────────────────────────────────────
 node_modules/
+frontend/dist/
 
-# Frontend build output
-dist/
+# ── Model weights (large files) ───────────────────────────────────────────────
+*.pt
+*.pth
+*.onnx
+*.torchscript
 
-# IDE
+# ── Edge device runtime files ─────────────────────────────────────────────────
+edge/config.yaml
+edge/config.edge.yaml
+
+# ── Docker runtime ────────────────────────────────────────────────────────────
+docker/.env
+
+# ── Papers and reports (PDFs, large binary files) ─────────────────────────────
+Papers/
+report/
+paper/
+
+# ── Hypothesis test cache ─────────────────────────────────────────────────────
+.hypothesis/
+
+# ── Temp / generated files ────────────────────────────────────────────────────
+generate_icons.py
+subprocess
+sys
+*.db
+*.db-shm
+*.db-wal
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+*.code-workspace
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

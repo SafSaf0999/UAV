@@ -314,7 +314,7 @@ Incremental implementation starting with shared schemas and infrastructure, then
   - Ensure all 13 property tests are tagged with `# Feature: anti-uav-detection-system, Property N: <title>` comments
   - _Requirements: (all correctness properties)_
 
-- [x] 40. Final checkpoint — all tests pass
+- [ ] 40. Final checkpoint — all tests pass
   - Run `pytest edge/tests/ main/aggregation/tests/ --hypothesis-seed=0 -v` and confirm all unit and property tests pass
   - Ask the user if questions arise before proceeding.
 

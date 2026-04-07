@@ -19,6 +19,24 @@ export interface SensorData {
   pitch_deg: number;
 }
 
+export interface HealthPayload {
+  device_id: string;
+  uptime_s: number;
+  cpu_percent: number;
+  memory_percent: number;
+  inference_fps: number;
+  frames_processed: number;
+  mqtt_reconnects: number;
+  camera_reconnects: number;
+  timestamp: string;
+}
+
+export interface CertInfo {
+  cn: string;
+  expires_at: string;
+  issuer: string;
+}
+
 export interface TrackingPayload {
   device_id: string;
   timestamp: string;
@@ -47,9 +65,12 @@ export interface DeviceState {
   lon: number | null;
   last_status_ts: string | null;
   detection_count: number;
+  class_counts: Record<string, number>;
   last_tracking: TrackingPayload | null;
   last_ptz_status: PtzStatus | null;
   last_sensor: SensorData | null;
+  health: HealthPayload | null;
+  cert_info: CertInfo | null;
 }
 
 export interface PtzCommand {
