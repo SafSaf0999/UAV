@@ -37,8 +37,7 @@ edge/config.edge.yaml
 docker/.env
 
 # ── Papers and reports (PDFs, large binary files) ─────────────────────────────
-Papers/*.pdf
-Papers/*.gz
+Papers/
 report/
 paper/
 
