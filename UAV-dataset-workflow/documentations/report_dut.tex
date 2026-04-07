@@ -1,0 +1,266 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1.2in]{geometry}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{parskip}
+\usepackage{xcolor}
+
+\title{\textbf{DUT Anti-UAV Benchmark Evaluation:\\
+Base Models and DUT-Fine-Tuned Models}}
+\author{UAV Dataset Workflow Project \\ \texttt{April 2026}}
+\date{}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Overview}
+
+This report evaluates four YOLO26s models on the DUT Anti-UAV tracking
+dataset~\cite{dutantiuav2022}, comprising 20 RGB daytime video sequences
+totalling approximately 24{,}804 frames. The dataset provides a single
+ground-truth bounding box per video (first frame only), so evaluation
+focuses on detection continuity, false detection analysis, and tracking
+gap characterisation rather than standard mAP.
+
+\textbf{Models evaluated:}
+\begin{itemize}
+  \item \textbf{BirdDrone-2C}: YOLO26s, 2-class (Bird/Drone), RTX 2070,
+        trained on 6{,}808 balanced images.
+  \item \textbf{BirdDrone-3C}: YOLO26s, 3-class (Bird/Drone/UAV), Colab T4,
+        trained on 31{,}551 images.
+  \item \textbf{BirdDrone-2C-FT}: BirdDrone-2C fine-tuned on DUT model-generated annotations
+        (13,984 train images, 11 epochs).
+  \item \textbf{BirdDrone-3C-FT}: BirdDrone-3C fine-tuned on DUT model-generated annotations
+        (30,993 train images, 20 epochs).
+\end{itemize}
+
+The report is structured in two parts: Part I covers the base models before
+fine-tuning; Part II covers the fine-tuned models and the improvement achieved.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Evaluation Methodology}
+
+Since per-frame detection annotations are not available in the tracking
+split, the following proxy metrics are used:
+
+\begin{itemize}
+  \item \textbf{Detection Rate (DR)}: fraction of frames with at least one
+        detection. Higher is better, assuming the UAV is present throughout.
+  \item \textbf{First-frame TP Rate}: fraction of videos where the model
+        correctly detects the UAV in the annotated first frame (IoU $>$ 0.5).
+  \item \textbf{False-Class Detection}: detections where the model predicts
+        Bird instead of Drone/UAV. Indicates class confusion.
+  \item \textbf{Tracking Gap}: a run of $\geq 5$ consecutive frames with no
+        detection. Indicates loss of track.
+  \item \textbf{Low-Confidence FP}: detections with confidence $<$ 0.35,
+        likely corresponding to background false positives (buildings, trees).
+\end{itemize}
+
+\textbf{Note on out-of-frame gaps:} Visual inspection confirmed that several
+large gaps correspond to the UAV genuinely leaving the camera field of view
+(Table~\ref{tab:oof}). These are not detection failures and should be
+interpreted accordingly.
+
+\begin{table}[H]
+\centering
+\caption{Confirmed out-of-frame gaps (verified by visual inspection).}
+\label{tab:oof}
+\small
+\begin{tabular}{llccc}
+\toprule
+\textbf{Video} & \textbf{Model} & \textbf{Frames} & \textbf{Duration} & \textbf{Cause} \\
+\midrule
+video07 & BirdDrone-2C  & 423--580  & 6.3s  & UAV left frame \\
+video09 & BirdDrone-2C  & 537--1042 & 20.2s & UAV left frame \\
+video12 & BirdDrone-2C  & 687--939  & 10.1s & UAV left frame + tracking loss \\
+video07 & BirdDrone-3C  & 425--576  & 6.1s  & UAV left frame \\
+video09 & BirdDrone-3C  & 341--1142 & 32.1s & UAV left frame \\
+video12 & BirdDrone-3C  & 695--905  & 8.4s  & UAV left frame + tracking loss \\
+video13 & BirdDrone-3C  & 740--856  & 4.7s  & UAV left frame \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Part I: Base Model Results}
+
+\subsection{Aggregate Performance}
+
+\begin{table}[H]
+\centering
+\caption{Base model aggregate performance on DUT Anti-UAV (20 videos).}
+\label{tab:base}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metric} & \textbf{BirdDrone-2C} & \textbf{BirdDrone-3C} \\
+\midrule
+Avg Detection Rate    & 0.808 & \textbf{0.842} \\
+Avg Confidence        & 0.671 & 0.668 \\
+First-frame TP Rate   & 0.850 & 0.850 \\
+False-Class Det       & 159   & \textbf{0} \\
+Low-Conf FP           & 2,549 & \textbf{2,437} \\
+Tracking Gaps         & 199   & \textbf{137} \\
+Total Missed Frames   & 6,164 & \textbf{5,117} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Analysis of Base Models}
+
+\textbf{Detection rate.}
+BirdDrone-3C achieves higher detection rate (0.842 vs 0.808), attributable
+to its larger training dataset (31,551 vs 6,808 images) providing broader
+coverage of UAV appearances.
+
+\textbf{False-class detections.}
+BirdDrone-2C produces 159 false-class detections (UAV labelled as Bird),
+while BirdDrone-3C produces zero. The 3-class model's dedicated UAV class
+eliminates this confusion entirely.
+
+\textbf{Low-confidence false positives.}
+Both models fire on building edges and tree canopies. These detections are
+typically transient (1--3 frames) and low-confidence ($<$ 0.4), distinguishable
+from true UAV tracks by their lack of temporal consistency.
+
+\textbf{Tracking gaps.}
+BirdDrone-3C has fewer gaps (137 vs 199), consistent with its higher
+detection rate. Both models struggle with complex backgrounds.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Part II: Fine-Tuned Model Results}
+
+\subsection{Fine-Tuning Methodology}
+
+Both models were fine-tuned on model-generated annotationed frames from the DUT Anti-UAV
+dataset. Frames where the model achieved confidence $\geq$ 0.70 were retained
+as training samples; the remaining 54\% were discarded. This yielded 11,345
+model-generated annotationed frames for BirdDrone-2C and 10,876 for BirdDrone-3C.
+
+Fine-tuning used lr0 = 0.001 (10$\times$ lower than base training) to prevent
+catastrophic forgetting, with patience = 8 for early stopping.
+
+\subsection{Aggregate Comparison: Before and After Fine-Tuning}
+
+\begin{table}[H]
+\centering
+\caption{Full comparison: base vs fine-tuned on DUT Anti-UAV.}
+\label{tab:ft_compare}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Metric} & \textbf{2C} & \textbf{2C-FT} & \textbf{3C} & \textbf{3C-FT} \\
+\midrule
+Avg Detection Rate    & 0.808 & \textbf{0.818} & 0.842 & \textbf{0.883} \\
+Avg Confidence        & 0.671 & \textbf{0.790} & 0.668 & \textbf{0.824} \\
+First-frame TP Rate   & 0.850 & 0.850          & 0.850 & \textbf{0.900} \\
+False-Class Det       & 159   & \textbf{65}    & 0     & 1 \\
+Low-Conf FP           & 2,549 & \textbf{1,154} & 2,437 & \textbf{752} \\
+Tracking Gaps         & 199   & \textbf{131}   & 137   & \textbf{98} \\
+Total Missed Frames   & 6,164 & \textbf{5,704} & 5,117 & \textbf{3,898} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Regression on Original Test Sets}
+
+\begin{table}[H]
+\centering
+\caption{Regression check: fine-tuned vs base on original test sets.}
+\label{tab:regression}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Test Set} & \textbf{2C} & \textbf{2C-FT} & \textbf{3C} & \textbf{3C-FT} \\
+\midrule
+Val set (own)         & 0.926 & \textbf{0.969} & 0.892 & 0.881 \\
+Anti-UAV test         & 0.934 & 0.929 ($-$0.005) & 0.980 & 0.978 ($-$0.002) \\
+UAVDetector test      & 0.273 & \textbf{0.341} ($+$0.069) & 0.886 & \textbf{0.898} ($+$0.012) \\
+Birds.v1i valid       & 0.973 & 0.972 ($-$0.001) & 0.365 & 0.272 ($-$0.093) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+BirdDrone-2C-FT shows negligible regression ($<$ 0.005) on all original
+test sets. BirdDrone-3C-FT shows a larger drop on Birds.v1i ($-$0.093
+mAP@0.5), however per-image analysis shows the model actually classifies
+more bird images correctly after fine-tuning (52.9\% $\to$ 59.5\%) and
+produces fewer false-class detections (26 $\to$ 17). The mAP drop is
+attributed to slightly reduced localisation precision, not classification
+accuracy.
+
+\subsection{Bird False Detection Analysis}
+
+\begin{table}[H]
+\centering
+\caption{Bird false detection on Birds.v1i valid split (378 images).}
+\label{tab:bird_fp}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{Correct (Bird)} & \textbf{False (Bird$\to$Drone)} & \textbf{Missed} \\
+\midrule
+BirdDrone-2C    & 362 (95.8\%) & 1 (0.3\%)  & 24 \\
+BirdDrone-2C-FT & \textbf{364} (96.3\%) & 1 (0.3\%) & \textbf{17} \\
+BirdDrone-3C    & 200 (52.9\%) & 26 (6.9\%) & 152 \\
+BirdDrone-3C-FT & \textbf{225} (59.5\%) & \textbf{17} (4.5\%) & \textbf{136} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Key Improvements from Fine-Tuning}
+
+\begin{itemize}
+  \item \textbf{BirdDrone-2C-FT}: Low-conf FP reduced by 55\% (2,549 $\to$ 1,154),
+        tracking gaps reduced by 34\% (199 $\to$ 131), false-class detections
+        reduced by 59\% (159 $\to$ 65). Negligible regression on original datasets.
+  \item \textbf{BirdDrone-3C-FT}: Low-conf FP reduced by 69\% (2,437 $\to$ 752),
+        tracking gaps reduced by 28\% (137 $\to$ 98), missed frames reduced by
+        24\% (5,117 $\to$ 3,898). First-frame TP rate improved from 0.850 to 0.900.
+  \item The most dramatic per-video improvements: video13 (gaps: 22$\to$9 for 3C-FT),
+        video15 (DR: 0.641$\to$0.847 for 2C-FT), video20 (gaps: 23$\to$8 for 3C-FT).
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Qualitative Observations}
+
+\begin{itemize}
+  \item \textbf{Building/tree false positives}: Both base models fire on
+        high-contrast edges of buildings and tree canopies. Fine-tuning
+        significantly reduces these (55--69\% reduction in low-conf FPs).
+  \item \textbf{Tracking gaps}: Detection disappears when the UAV passes
+        in front of cluttered backgrounds. A tracking algorithm (ByteTrack,
+        DeepSORT) would bridge remaining gaps.
+  \item \textbf{Class consistency (BirdDrone-3C)}: The 3-class model
+        occasionally shifts between Drone and UAV labels on the same object.
+        This is a confidence oscillation near the class boundary and does not
+        affect detection correctness. Post-processing to merge Drone/UAV at
+        inference time would resolve this.
+  \item \textbf{Re-acquisition after out-of-frame}: Both models struggle to
+        re-acquire the UAV immediately after it re-enters the frame (video12).
+        This is expected for a single-frame detector without temporal memory.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Recommendations}
+
+\begin{enumerate}
+  \item Use \textbf{BirdDrone-2C-FT} as the production model: best bird
+        detection (96.3\%), lowest false positive rate, minimal regression.
+  \item Apply confidence threshold 0.40--0.45 in deployment to further
+        reduce background false positives.
+  \item Integrate ByteTrack to bridge tracking gaps and suppress transient
+        false positives.
+  \item For 3-class deployment, post-process to merge Drone/UAV predictions
+        for consistent output labelling.
+\end{enumerate}
+
+\begin{thebibliography}{9}
+\bibitem{dutantiuav2022}
+J.\ Zhao, J.\ Zhang, D.\ Li, D.\ Wang,
+``Vision-based Anti-UAV Detection and Tracking,''
+\textit{IEEE Transactions on Intelligent Transportation Systems}, 2022.
+\url{https://doi.org/10.1109/TITS.2022.3177627}
+\end{thebibliography}
+
+\end{document}

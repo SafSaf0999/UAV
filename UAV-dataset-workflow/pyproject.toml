@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anti-uav"
+version = "0.1.0"
+description = "Anti-UAV dataset management and YOLO26 training workflow system"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "PyQt5",
+    "ultralytics>=8.4.0",
+    "label-studio-sdk",
+    "google-api-python-client",
+    "google-auth-oauthlib",
+    "kaggle",
+    "nbformat",
+    "PyYAML",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = [
+    "hypothesis",
+    "pytest",
+    "pytest-qt",
+]
+
+[project.scripts]
+anti-uav = "anti_uav.__main__:main"
+anti-uav-inspect = "anti_uav.__main__:main"
+anti-uav-review = "anti_uav.__main__:main"
+anti-uav-normalize = "anti_uav.__main__:main"
+anti-uav-backend = "anti_uav.__main__:main"
+anti-uav-merge = "anti_uav.__main__:main"
+anti-uav-train = "anti_uav.__main__:main"
+anti-uav-document = "anti_uav.__main__:main"
+anti-uav-compare = "anti_uav.__main__:main"
+anti-uav-colab = "anti_uav.__main__:main"
+anti-uav-manual = "anti_uav.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["anti_uav*"]

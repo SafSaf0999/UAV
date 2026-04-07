@@ -1,0 +1,9 @@
+model,test_set,map50,map50_95,precision,recall
+BirdDrone-Local,2class-val,0.9267,0.5544,0.94,0.8746
+BirdDrone-Local,anti-uav-test,0.934,0.6188,0.9426,0.8773
+BirdDrone-Local,uavdetector-test,0.2726,0.0966,0.4577,0.4012
+BirdDrone-Local,birds-valid,0.9732,0.5908,0.9421,0.9353
+BirdDrone-Local-FT,2class-val,0.9223,0.5487,0.9291,0.8659
+BirdDrone-Local-FT,anti-uav-test,0.9292,0.6095,0.9268,0.8621
+BirdDrone-Local-FT,uavdetector-test,0.3411,0.1187,0.5487,0.4251
+BirdDrone-Local-FT,birds-valid,0.9721,0.5888,0.9421,0.9336
