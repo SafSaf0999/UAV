@@ -1,25 +1,31 @@
 /**
  * Tracking overlay — canvas element over video feed.
  *
- * Draws bounding boxes, track IDs, distance, and trajectory vectors
- * from the latest TrackingPayload.
+ * Draws bounding boxes (color-coded by class), track IDs, distance,
+ * and trajectory vectors from the latest TrackingPayload.
+ * Uses actual video dimensions via loadedmetadata event.
+ * Attaches ResizeObserver to keep canvas in sync with video element size.
  *
- * Requirements: 5.3, 5.4, 17.6
+ * Requirements: 5.3, 5.4, 17.6, v2-5.1, v2-5.2, v2-8.3, v2-8.4, v2-8.5
  */
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { TrackingPayload, Detection } from "../types";
+import { getClassColor } from "../utils/classColors";
 
 interface Props {
   tracking: TrackingPayload;
   containerRef: React.RefObject<HTMLElement>;
+  videoRef?: React.RefObject<HTMLVideoElement>;
+  profileColors?: Record<string, string>;
 }
 
 function drawDetection(
   ctx: CanvasRenderingContext2D,
   det: Detection,
   scaleX: number,
-  scaleY: number
+  scaleY: number,
+  color: string,
 ) {
   const [x, y, w, h] = det.bbox;
   const sx = x * scaleX;
@@ -28,7 +34,7 @@ function drawDetection(
   const sh = h * scaleY;
 
   // Bounding box
-  ctx.strokeStyle = "#22c55e";
+  ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.strokeRect(sx, sy, sw, sh);
 
@@ -36,7 +42,7 @@ function drawDetection(
   const label = `#${det.track_id} ${det.label} ${(det.confidence * 100).toFixed(0)}%`;
   ctx.font = "12px monospace";
   const textW = ctx.measureText(label).width;
-  ctx.fillStyle = "rgba(34,197,94,0.8)";
+  ctx.fillStyle = color + "cc";
   ctx.fillRect(sx, sy - 18, textW + 8, 18);
 
   // Label text
@@ -64,7 +70,6 @@ function drawDetection(
     ctx.strokeStyle = "#60a5fa";
     ctx.lineWidth = 2;
     ctx.stroke();
-    // Arrowhead
     const angle = Math.atan2(dy, dx);
     ctx.beginPath();
     ctx.moveTo(cx + dx, cy + dy);
@@ -76,9 +81,66 @@ function drawDetection(
   }
 }
 
-export function TrackingOverlay({ tracking, containerRef }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+function drawLegend(
+  ctx: CanvasRenderingContext2D,
+  classes: string[],
+  profileColors?: Record<string, string>,
+) {
+  if (classes.length === 0) return;
+  const padding = 6;
+  const lineH = 18;
+  const boxW = 12;
+  const maxLabelW = Math.max(...classes.map((c) => ctx.measureText(c).width));
+  const legendW = boxW + padding + maxLabelW + padding * 2;
+  const legendH = classes.length * lineH + padding * 2;
+  const x = ctx.canvas.width - legendW - 8;
+  const y = 8;
 
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(x, y, legendW, legendH);
+
+  classes.forEach((cls, i) => {
+    const color = getClassColor(cls, profileColors);
+    const cy = y + padding + i * lineH;
+    ctx.fillStyle = color;
+    ctx.fillRect(x + padding, cy + 3, boxW, boxW);
+    ctx.fillStyle = "#fff";
+    ctx.font = "11px monospace";
+    ctx.fillText(cls, x + padding + boxW + 4, cy + 13);
+  });
+}
+
+export function TrackingOverlay({ tracking, containerRef, videoRef, profileColors }: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [videoDims, setVideoDims] = useState({ w: 640, h: 480 });
+
+  // Listen to video loadedmetadata to get real frame dimensions
+  useEffect(() => {
+    const video = videoRef?.current ?? (containerRef.current as HTMLVideoElement | null);
+    if (!video || video.tagName !== "VIDEO") return;
+    const onMeta = () => {
+      if (video.videoWidth && video.videoHeight) {
+        setVideoDims({ w: video.videoWidth, h: video.videoHeight });
+      }
+    };
+    video.addEventListener("loadedmetadata", onMeta);
+    if (video.videoWidth) onMeta();
+    return () => video.removeEventListener("loadedmetadata", onMeta);
+  }, [videoRef, containerRef]);
+
+  // ResizeObserver to keep canvas size in sync
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ro = new ResizeObserver(() => {
+      canvas.width = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+    });
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, []);
+
+  // Draw on every tracking update
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -93,17 +155,19 @@ export function TrackingOverlay({ tracking, containerRef }: Props) {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Scale factors: bbox coords are in original frame pixels
-    // We assume 640x480 default; ideally the payload would include frame dims
-    const frameW = 640;
-    const frameH = 480;
-    const scaleX = canvas.width / frameW;
-    const scaleY = canvas.height / frameH;
+    const scaleX = canvas.width / videoDims.w;
+    const scaleY = canvas.height / videoDims.h;
 
+    const classesInFrame = new Set<string>();
     for (const det of tracking.detections) {
-      drawDetection(ctx, det, scaleX, scaleY);
+      const color = getClassColor(det.label, profileColors);
+      drawDetection(ctx, det, scaleX, scaleY, color);
+      classesInFrame.add(det.label);
     }
-  }, [tracking]);
+
+    // Class legend
+    drawLegend(ctx, Array.from(classesInFrame), profileColors);
+  }, [tracking, videoDims, profileColors]);
 
   return (
     <canvas

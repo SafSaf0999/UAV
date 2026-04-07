@@ -1,4 +1,0 @@
-# file: /home/safsaf/Projects/UAV/UAV/main/aggregation/registry.py
-# hypothesis_version: 6.151.9
-
-['active_model', 'detection_count', 'detections', 'device_id', 'last_ptz_status', 'last_sensor', 'last_status_ts', 'last_tracking', 'lat', 'lon', 'status', 'timestamp', 'unknown']

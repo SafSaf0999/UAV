@@ -43,6 +43,7 @@ class CameraSource:
         self.frame_queue = frame_queue
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self.reconnect_count: int = 0
 
     # ------------------------------------------------------------------
     # HTTP MJPEG reader
@@ -91,6 +92,7 @@ class CameraSource:
                     "CameraSource: HTTP error '%s': %s, retrying in %ss",
                     self.source, exc, _RETRY_INTERVAL_S,
                 )
+                self.reconnect_count += 1
                 self._stop_event.wait(timeout=_RETRY_INTERVAL_S)
 
         logger.info("CameraSource: stopped '%s'", self.source)
@@ -132,6 +134,7 @@ class CameraSource:
                 )
                 cap.release()
                 cap = None
+                self.reconnect_count += 1
                 self._stop_event.wait(timeout=_RETRY_INTERVAL_S)
                 continue
 

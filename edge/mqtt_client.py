@@ -113,6 +113,35 @@ class MQTTClient:
     # paho callbacks
     # ------------------------------------------------------------------
 
+    def _read_cert_info(self) -> dict | None:
+        """
+        Read the client TLS certificate and extract CN, expiry date, and issuer.
+        Returns None if cert path is not configured or file is unreadable.
+        """
+        cert_path = self._config.get("mqtt.tls.client_cert")
+        if not cert_path:
+            return None
+        try:
+            import ssl
+            import datetime as _dt
+            cert_dict = ssl._ssl._test_decode_cert(cert_path)  # type: ignore[attr-defined]
+            subject = dict(x[0] for x in cert_dict.get("subject", ()))
+            issuer = dict(x[0] for x in cert_dict.get("issuer", ()))
+            not_after = cert_dict.get("notAfter", "")
+            # Parse "Jan  1 00:00:00 2035 GMT" format
+            try:
+                expires_at = _dt.datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").isoformat() + "Z"
+            except ValueError:
+                expires_at = not_after
+            return {
+                "cn": subject.get("commonName", ""),
+                "expires_at": expires_at,
+                "issuer": issuer.get("commonName", issuer.get("organizationName", "")),
+            }
+        except Exception as exc:
+            logger.warning("MQTTClient: could not read cert info from %s: %s", cert_path, exc)
+            return None
+
     def _on_connect(self, client: mqtt.Client, userdata, flags, rc: int) -> None:
         if rc != 0:
             logger.error("MQTT connection failed with code %d", rc)
@@ -121,17 +150,22 @@ class MQTTClient:
         logger.info("MQTT connected (rc=%d)", rc)
         self._reconnect_attempt = 0  # reset backoff on successful connect
 
+        # Build online status payload, optionally including cert_info
+        status_payload: dict = {
+            "device_id": self._device_id,
+            "status": "online",
+            "active_model": self._config.active_model,
+            "lat": self._config.get("location.lat"),
+            "lon": self._config.get("location.lon"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        cert_info = self._read_cert_info()
+        if cert_info:
+            status_payload["cert_info"] = cert_info
+
         # Publish retained online status
-        self.publish_status(
-            {
-                "device_id": self._device_id,
-                "status": "online",
-                "active_model": self._config.active_model,
-                "lat": self._config.get("location.lat"),
-                "lon": self._config.get("location.lon"),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+        self.publish_status(status_payload)
 
         # Subscribe to command and PTZ topics
         command_topic = f"uav/command/{self._device_id}"
@@ -240,3 +274,13 @@ class MQTTClient:
         topic = f"uav/sensor/{self._device_id}"
         payload = json.dumps(sensor_dict, ensure_ascii=False)
         self._client.publish(topic, payload=payload, qos=0, retain=False)
+
+    def publish_health(self, payload_bytes: bytes) -> None:
+        """Publish health payload (QoS 0, not retained)."""
+        topic = f"uav/health/{self._device_id}"
+        self._client.publish(topic, payload=payload_bytes, qos=0, retain=False)
+
+    def publish_log(self, payload_bytes: bytes) -> None:
+        """Publish log entry (QoS 0, not retained)."""
+        topic = f"uav/log/{self._device_id}"
+        self._client.publish(topic, payload=payload_bytes, qos=0, retain=False)

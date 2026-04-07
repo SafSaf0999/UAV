@@ -1,15 +1,17 @@
 /**
  * Live feed grid — up to 4 WebRTC video streams.
  *
- * Each video connects to the signaling server to exchange SDP/ICE.
- * Shows a reconnect indicator on stream interruption.
- * Overlays PTZ controls when device has PTZ enabled.
+ * Auto-starts streams when the page opens or when a feed thumbnail
+ * becomes visible (Intersection Observer).
+ * Shows distinct "Waiting for stream…" vs "Stream interrupted" states.
+ * Supports TURN server fallback via TURN_SERVER_URL env var.
  *
- * Requirements: 5.2, 5.3, 5.4, 5.5, 6.3, 6.4
+ * Requirements: 5.2, 5.3, 5.4, 5.5, 6.3, 6.4, v2-8.1–8.8
  */
 
 import React, { useEffect, useRef, useState } from "react";
 import { useDevices } from "../api/websocket";
+import { sendCommand } from "../api/commands";
 import type { DeviceState } from "../types";
 import { TrackingOverlay } from "./TrackingOverlay";
 import { PtzControls } from "./PtzControls";
@@ -17,15 +19,34 @@ import { PtzControls } from "./PtzControls";
 declare const __SIGNALING_URL__: string;
 const SIGNALING_URL = __SIGNALING_URL__;
 
+// Optional TURN server — injected at build time or falls back to STUN only
+declare const __TURN_SERVER_URL__: string | undefined;
+
 const MAX_FEEDS = 4;
+
+// Track which devices have had start_stream sent this session
+const _activeStreams = new Set<string>();
+
+function getIceServers(): RTCIceServer[] {
+  const servers: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+  try {
+    if (typeof __TURN_SERVER_URL__ !== "undefined" && __TURN_SERVER_URL__) {
+      servers.push({ urls: __TURN_SERVER_URL__ });
+    }
+  } catch {
+    // __TURN_SERVER_URL__ not defined — STUN only
+  }
+  return servers;
+}
 
 // ---------------------------------------------------------------------------
 // WebRTC peer connection per device
 // ---------------------------------------------------------------------------
 
+type StreamState = "waiting" | "connected" | "interrupted";
+
 function useWebRTCStream(device_id: string, videoRef: React.RefObject<HTMLVideoElement>) {
-  const [connected, setConnected] = useState(false);
-  const [error, setError] = useState(false);
+  const [streamState, setStreamState] = useState<StreamState>("waiting");
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -36,16 +57,13 @@ function useWebRTCStream(device_id: string, videoRef: React.RefObject<HTMLVideoE
       const ws = new WebSocket(SIGNALING_URL);
       wsRef.current = ws;
 
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-      });
+      const pc = new RTCPeerConnection({ iceServers: getIceServers() });
       pcRef.current = pc;
 
       pc.ontrack = (event) => {
         if (videoRef.current && event.streams[0]) {
           videoRef.current.srcObject = event.streams[0];
-          setConnected(true);
-          setError(false);
+          setStreamState("connected");
         }
       };
 
@@ -61,8 +79,7 @@ function useWebRTCStream(device_id: string, videoRef: React.RefObject<HTMLVideoE
 
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-          setConnected(false);
-          setError(true);
+          setStreamState("interrupted");
           if (!cancelled) setTimeout(connect, 3000);
         }
       };
@@ -89,9 +106,8 @@ function useWebRTCStream(device_id: string, videoRef: React.RefObject<HTMLVideoE
       };
 
       ws.onclose = () => {
-        setConnected(false);
         if (!cancelled) {
-          setError(true);
+          setStreamState("interrupted");
           setTimeout(connect, 3000);
         }
       };
@@ -106,7 +122,7 @@ function useWebRTCStream(device_id: string, videoRef: React.RefObject<HTMLVideoE
     };
   }, [device_id]);
 
-  return { connected, error };
+  return { streamState };
 }
 
 // ---------------------------------------------------------------------------
@@ -115,11 +131,29 @@ function useWebRTCStream(device_id: string, videoRef: React.RefObject<HTMLVideoE
 
 function FeedCell({ device }: { device: DeviceState }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { connected, error } = useWebRTCStream(device.device_id, videoRef);
+  const thumbRef = useRef<HTMLDivElement>(null);
+  const { streamState } = useWebRTCStream(device.device_id, videoRef);
   const hasPtz = device.last_ptz_status !== null || device.active_model !== null;
 
+  // Intersection Observer — auto-start when thumbnail becomes visible
+  useEffect(() => {
+    const el = thumbRef.current;
+    if (!el || device.status !== "online") return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting && !_activeStreams.has(device.device_id)) {
+        _activeStreams.add(device.device_id);
+        sendCommand(device.device_id, { action: "start_stream" });
+      }
+    }, { threshold: 0.1 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [device.device_id, device.status]);
+
   return (
-    <div style={{ position: "relative", background: "#000", borderRadius: 6, overflow: "hidden", aspectRatio: "16/9" }}>
+    <div
+      ref={thumbRef}
+      style={{ position: "relative", background: "#000", borderRadius: "var(--ha-border-radius-md)", overflow: "hidden", aspectRatio: "16/9" }}
+    >
       <video
         ref={videoRef}
         autoPlay
@@ -133,25 +167,36 @@ function FeedCell({ device }: { device: DeviceState }) {
       {device.last_tracking && (
         <TrackingOverlay
           tracking={device.last_tracking}
-          containerRef={videoRef as React.RefObject<HTMLElement>}
+          containerRef={thumbRef as React.RefObject<HTMLElement>}
+          videoRef={videoRef}
         />
       )}
 
-      {/* Reconnect indicator */}
-      {error && !connected && (
-        <div style={{
-          position: "absolute", inset: 0, display: "flex", alignItems: "center",
-          justifyContent: "center", background: "rgba(0,0,0,0.7)", color: "#ef4444",
-          fontSize: 14,
-        }}>
-          ⚠ Stream interrupted — reconnecting…
+      {/* Waiting for stream */}
+      {streamState === "waiting" && (
+        <div style={overlayStyle}>
+          <div style={spinnerStyle} aria-label="Waiting for stream" />
+          <span style={{ color: "var(--secondary-text-color)", fontSize: "var(--ha-font-size-s)" }}>
+            Waiting for stream…
+          </span>
+        </div>
+      )}
+
+      {/* Stream interrupted */}
+      {streamState === "interrupted" && (
+        <div style={{ ...overlayStyle, background: "rgba(0,0,0,0.7)" }}>
+          <span style={{ color: "var(--uav-color-alert)", fontSize: "var(--ha-font-size-s)" }}>
+            ⚠ Stream interrupted — reconnecting…
+          </span>
         </div>
       )}
 
       {/* Device label */}
       <div style={{
-        position: "absolute", top: 8, left: 8, background: "rgba(0,0,0,0.6)",
-        color: "#f9fafb", fontSize: 12, padding: "2px 8px", borderRadius: 4,
+        position: "absolute", top: 8, left: 8,
+        background: "rgba(0,0,0,0.6)", color: "#f9fafb",
+        fontSize: "var(--ha-font-size-xs)", padding: "2px 8px",
+        borderRadius: "var(--ha-border-radius-sm)",
       }}>
         {device.device_id}
       </div>
@@ -166,6 +211,22 @@ function FeedCell({ device }: { device: DeviceState }) {
   );
 }
 
+const overlayStyle: React.CSSProperties = {
+  position: "absolute", inset: 0,
+  display: "flex", flexDirection: "column",
+  alignItems: "center", justifyContent: "center",
+  gap: "var(--ha-space-2)",
+  background: "rgba(0,0,0,0.5)",
+};
+
+const spinnerStyle: React.CSSProperties = {
+  width: 24, height: 24,
+  border: "3px solid var(--ha-color-neutral-30)",
+  borderTopColor: "var(--primary-color)",
+  borderRadius: "50%",
+  animation: "spin 0.8s linear infinite",
+};
+
 // ---------------------------------------------------------------------------
 // LiveFeedGrid
 // ---------------------------------------------------------------------------
@@ -176,21 +237,36 @@ export function LiveFeedGrid() {
     .filter((d) => d.status === "online")
     .slice(0, MAX_FEEDS);
 
+  // Auto-start streams for all online devices on mount
+  useEffect(() => {
+    for (const device of onlineDevices) {
+      if (!_activeStreams.has(device.device_id)) {
+        _activeStreams.add(device.device_id);
+        sendCommand(device.device_id, { action: "start_stream" });
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (onlineDevices.length === 0) {
     return (
-      <div style={{ color: "#9ca3af", padding: 24 }}>No online devices to stream.</div>
+      <div style={{ color: "var(--secondary-text-color)", padding: "var(--ha-space-6)" }}>
+        No online devices to stream.
+      </div>
     );
   }
 
   return (
-    <div style={{
-      display: "grid",
-      gridTemplateColumns: onlineDevices.length === 1 ? "1fr" : "repeat(2, 1fr)",
-      gap: 8,
-    }}>
-      {onlineDevices.map((device) => (
-        <FeedCell key={device.device_id} device={device} />
-      ))}
-    </div>
+    <>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: onlineDevices.length === 1 ? "1fr" : "repeat(2, 1fr)",
+        gap: "var(--ha-space-2)",
+      }}>
+        {onlineDevices.map((device) => (
+          <FeedCell key={device.device_id} device={device} />
+        ))}
+      </div>
+    </>
   );
 }
