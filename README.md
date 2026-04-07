@@ -3,10 +3,10 @@
 Real-time UAV/drone detection and tracking system with a web-based control center and a dataset management + training toolkit.
 
 ```
-Phone (WiFi Hotspot + IP Webcam)
+Camera Source (IP Webcam / USB / RTSP) — same network
         │
-        ├── Main Laptop  ←── Docker stack (MQTT, aggregation, control center)
-        └── Edge Laptop  ←── YOLO inference, publishes detections via MQTT
+        ├── Main Device  ←── Docker stack (MQTT, aggregation, control center)
+        └── Edge Device  ←── YOLO inference, publishes detections via MQTT
 ```
 
 ---
@@ -57,16 +57,16 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 ---
 
-### Step 1 — Generate TLS Certificates (main laptop, once)
+### Step 1 — Generate TLS Certificates (main device, once)
 
 ```bash
-# Replace 10.202.14.6 with your main laptop's IP on the hotspot
-FORCE=1 SERVER_IP="10.202.14.6" DEVICE_IDS="edge-01" bash certs/gen_certs.sh
+# Replace with your main device's IP on the shared network
+FORCE=1 SERVER_IP="<MAIN_DEVICE_IP>" DEVICE_IDS="edge-01" bash certs/gen_certs.sh
 ```
 
 This creates `secrets/ca.crt`, `secrets/server.crt/key`, `secrets/edge-01.crt/key`.
 
-Copy the edge certs to the edge laptop:
+Copy the edge certs to the edge device:
 
 ```bash
 scp secrets/ca.crt secrets/edge-01.crt secrets/edge-01.key user@<EDGE_IP>:~/path/to/UAV/secrets/
@@ -74,12 +74,13 @@ scp secrets/ca.crt secrets/edge-01.crt secrets/edge-01.key user@<EDGE_IP>:~/path
 
 ---
 
-### Step 2 — Phone Setup
+### Step 2 — Camera Source
 
-1. Install **IP Webcam** (Android, Play Store)
-2. Open the app → scroll down → tap **Start server**
-3. Note the URL shown, e.g. `http://10.202.14.184:8080`
-4. Video stream URL: `http://10.202.14.184:8080/video`
+Any of these work as a camera source, as long as it's reachable on the same network as the edge device:
+
+- **IP Webcam** (Android) — install from Play Store, tap **Start server**, use the `/video` stream URL
+- **USB webcam** — set `camera.source: 0` in `edge/config.yaml`
+- **RTSP stream** — set `camera.source: rtsp://...` in `edge/config.yaml`
 
 ---
 
@@ -116,7 +117,7 @@ Change via Settings → Users → Generate Invite → create new admin → deact
 
 ### Step 4 — Start the Edge Device
 
-On the edge laptop:
+On the edge device:
 
 ```bash
 # Kill any stale processes first
@@ -126,8 +127,8 @@ python launcher_edge.py
 ```
 
 In the GUI:
-- **Camera URL** → `http://<phone-ip>:8080/video`
-- **Main Device IP** → IP of the main laptop on the hotspot
+- **Camera URL** → your camera stream URL (e.g. `http://<camera-ip>:8080/video`)
+- **Main Device IP** → IP of the main device on the shared network
 - **Model .pt path** → path to your trained weights (e.g. BirdDrone-2C-FT)
 - **Device ID** → `edge-01`
 - Click **Save Config** → **Start Inference**
@@ -143,8 +144,8 @@ UAV-dataset-workflow/training/finetuned/BirdDrone-2C/weights/best.pt
 ### Step 5 — Open the Control Center
 
 ```
-http://localhost:8080        ← from main laptop
-http://<main-ip>:8080        ← from any device on the same network
+http://localhost:8080          ← from main device
+http://<main-device-ip>:8080   ← from any device on the same network
 ```
 
 **Pages:**
@@ -169,8 +170,8 @@ http://<main-ip>:8080        ← from any device on the same network
 
 ### Install as Android App (PWA)
 
-1. Connect Android to the same network as the main laptop
-2. Open Chrome → navigate to `http://<main-ip>:8080`
+1. Connect Android to the same network as the main device
+2. Open Chrome → navigate to `http://<main-device-ip>:8080`
 3. Log in → tap ⋮ → **Add to Home Screen**
 4. Launches fullscreen with the UAV radar icon
 

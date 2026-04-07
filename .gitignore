@@ -23,10 +23,8 @@ logs/
 node_modules/
 frontend/dist/
 
-# ── Model weights (large files) ───────────────────────────────────────────────
-*.pt
-*.pth
-*.onnx
+# ── Model weights — tracked via Git LFS, not ignored ─────────────────────────
+# *.pt *.pth *.onnx are stored in LFS (see .gitattributes)
 *.torchscript
 
 # ── Edge device runtime files ─────────────────────────────────────────────────
