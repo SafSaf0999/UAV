@@ -81,32 +81,63 @@ function drawDetection(
   }
 }
 
+interface LegendEntry {
+  label: string;
+  color: string;
+}
+
+function buildLegendEntries(
+  classes: Set<string>,
+  profileColors?: Record<string, string>,
+): LegendEntry[] {
+  const entries: LegendEntry[] = [];
+  const hasBird = classes.has("bird");
+  const hasDrone = classes.has("drone");
+
+  for (const cls of classes) {
+    if (cls === "bird" || cls === "drone") continue;
+    entries.push({ label: cls, color: getClassColor(cls, undefined, profileColors) });
+  }
+
+  if (hasBird) {
+    entries.push({ label: "bird (green)", color: "#22c55e" });
+  }
+  if (hasDrone) {
+    entries.push({ label: "drone ≥50% (red)", color: "#ef4444" });
+    entries.push({ label: "drone <50% (orange)", color: "#f97316" });
+  }
+
+  return entries;
+}
+
 function drawLegend(
   ctx: CanvasRenderingContext2D,
-  classes: string[],
+  classes: Set<string>,
   profileColors?: Record<string, string>,
 ) {
-  if (classes.length === 0) return;
+  const entries = buildLegendEntries(classes, profileColors);
+  if (entries.length === 0) return;
+
   const padding = 6;
   const lineH = 18;
   const boxW = 12;
-  const maxLabelW = Math.max(...classes.map((c) => ctx.measureText(c).width));
+  ctx.font = "11px monospace";
+  const maxLabelW = Math.max(...entries.map((e) => ctx.measureText(e.label).width));
   const legendW = boxW + padding + maxLabelW + padding * 2;
-  const legendH = classes.length * lineH + padding * 2;
+  const legendH = entries.length * lineH + padding * 2;
   const x = ctx.canvas.width - legendW - 8;
   const y = 8;
 
   ctx.fillStyle = "rgba(0,0,0,0.6)";
   ctx.fillRect(x, y, legendW, legendH);
 
-  classes.forEach((cls, i) => {
-    const color = getClassColor(cls, profileColors);
+  entries.forEach((entry, i) => {
     const cy = y + padding + i * lineH;
-    ctx.fillStyle = color;
+    ctx.fillStyle = entry.color;
     ctx.fillRect(x + padding, cy + 3, boxW, boxW);
     ctx.fillStyle = "#fff";
     ctx.font = "11px monospace";
-    ctx.fillText(cls, x + padding + boxW + 4, cy + 13);
+    ctx.fillText(entry.label, x + padding + boxW + 4, cy + 13);
   });
 }
 
@@ -160,13 +191,13 @@ export function TrackingOverlay({ tracking, containerRef, videoRef, profileColor
 
     const classesInFrame = new Set<string>();
     for (const det of tracking.detections) {
-      const color = getClassColor(det.label, profileColors);
+      const color = getClassColor(det.label, det.confidence, profileColors);
       drawDetection(ctx, det, scaleX, scaleY, color);
       classesInFrame.add(det.label);
     }
 
     // Class legend
-    drawLegend(ctx, Array.from(classesInFrame), profileColors);
+    drawLegend(ctx, classesInFrame, profileColors);
   }, [tracking, videoDims, profileColors]);
 
   return (

@@ -3,10 +3,13 @@ device_id: edge-01
 mqtt:
   host: main-device.example.com
   port: 8883
+  username: edge-01
+  password: change-me
   tls:
     ca_cert: /certs/ca.crt
-    client_cert: /certs/edge-01.crt
-    client_key: /certs/edge-01.key
+    # client_cert and client_key are optional (legacy cert-based auth)
+    # client_cert: /certs/edge-01.crt
+    # client_key: /certs/edge-01.key
 
 camera:
   source: /dev/video0   # or rtsp://... or http://<phone_ip>:8080/video
@@ -52,3 +55,7 @@ arduino:
 sensor_reader:
   enabled: false
   source: http://192.168.1.100:8080/sensors.json
+
+# Optional: IP Webcam Android app integration
+# ipwebcam:
+#   url: http://192.168.1.100:8080

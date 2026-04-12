@@ -21,9 +21,14 @@ let _paletteIndex = 0;
 
 export function getClassColor(
   label: string,
+  confidence?: number,
   profileColors?: Record<string, string>
 ): string {
   if (profileColors?.[label]) return profileColors[label];
+  if (label === "drone" && confidence !== undefined) {
+    return confidence >= 0.5 ? "#ef4444" : "#f97316";
+  }
+  if (label === "bird") return "#22c55e";
   if (DEFAULT_COLORS[label]) return DEFAULT_COLORS[label];
   if (!_assignedColors[label]) {
     _assignedColors[label] = PALETTE[_paletteIndex % PALETTE.length];

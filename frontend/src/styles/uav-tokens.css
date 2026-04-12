@@ -16,7 +16,7 @@
 
   /* Detection class defaults */
   --uav-class-drone: var(--ha-color-red-50);
-  --uav-class-bird: var(--ha-color-orange-60);
+  --uav-class-bird: #22c55e;
   --uav-class-person: var(--ha-color-primary-50);
   --uav-class-vehicle: #8b5cf6;
   --uav-class-default: var(--ha-color-neutral-60);

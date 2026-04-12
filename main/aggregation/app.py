@@ -2,13 +2,16 @@
 Aggregation service — FastAPI app.
 
 Endpoints:
-  GET  /devices                  → list all device states
-  GET  /devices/{device_id}      → single device state
-  POST /command/{device_id}      → publish command to MQTT
-  POST /ptz/{device_id}          → publish PTZ command to MQTT
-  WS   /ws                       → push DeviceRegistry state updates
+  GET  /devices                                    → list all device states
+  GET  /devices/{device_id}                        → single device state
+  POST /command/{device_id}                        → publish command to MQTT
+  POST /ptz/{device_id}                            → publish PTZ command to MQTT
+  GET  /devices/{device_id}/detections/export      → export detections as CSV
+  GET  /devices/{device_id}/thresholds             → get alert threshold config
+  PUT  /devices/{device_id}/thresholds             → update alert threshold config
+  WS   /ws                                         → push DeviceRegistry state updates
 
-Requirements: 4.2, 7.1, 7.2, 13.2
+Requirements: 4.2, 7.1, 7.2, 13.2, 5.1, 5.3, 6.1, 6.4, 7.2, 9.1
 """
 
 import asyncio
@@ -18,12 +21,16 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any, List, Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, Response
 
 from main.aggregation.registry import DeviceRegistry
 from main.aggregation.validator import validate_payload
 from main.aggregation.mqtt_subscriber import create_subscriber_from_env
+from main.aggregation.detections_db import init_detections_db, export_detections_csv
+from main.aggregation.thresholds import get_threshold_store, ThresholdConfig
+from main.aggregation.webhook_dispatcher import get_webhook_dispatcher
+from main.aggregation.health_checker import run_health_checker
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +81,12 @@ def _get_mqtt_client():
 async def lifespan(app: FastAPI):
     global _mqtt_publish_fn
 
+    # Initialize detections database
+    try:
+        await init_detections_db()
+    except Exception as exc:
+        logger.warning("aggregation: failed to init detections DB: %s", exc)
+
     # Start MQTT subscriber in background
     subscriber = create_subscriber_from_env(registry, validate_payload)
     task = asyncio.create_task(subscriber.run())
@@ -104,11 +117,51 @@ async def lifespan(app: FastAPI):
 
     _mqtt_publish_fn = _publish
 
+    # Inject publish function into registry for PTZ follow
+    registry.set_publish_fn(_publish)
+
+    # Start health checker background task
+    webhook_dispatcher = get_webhook_dispatcher()
+    health_task = asyncio.create_task(
+        run_health_checker(registry, webhook_dispatcher)
+    )
+
+    # Background task: poll ipwebcam sensors every 30s for online devices
+    async def _ipwebcam_sensor_poller():
+        while True:
+            await asyncio.sleep(30)
+            try:
+                devices = await registry.get_all_devices()
+                for device in devices:
+                    if device.get("status") == "online" and device.get("ipwebcam_capabilities"):
+                        device_id = device["device_id"]
+                        topic = f"uav/command/{device_id}"
+                        payload = json.dumps({"action": "ipwebcam_sensors"})
+                        try:
+                            loop = asyncio.get_event_loop()
+                            await loop.run_in_executor(None, _mqtt_publish_fn, topic, payload)
+                        except Exception as exc:
+                            logger.warning("aggregation: ipwebcam sensor poll failed for %s: %s", device_id, exc)
+            except Exception as exc:
+                logger.warning("aggregation: ipwebcam sensor poller error: %s", exc)
+
+    ipwebcam_poll_task = asyncio.create_task(_ipwebcam_sensor_poller())
+
     yield
 
     task.cancel()
+    health_task.cancel()
+    ipwebcam_poll_task.cancel()
     try:
         await task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await health_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await ipwebcam_poll_task
     except asyncio.CancelledError:
         pass
 
@@ -174,6 +227,64 @@ async def send_ptz(device_id: str, body: dict):
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, _mqtt_publish_fn, topic, payload)
     return {"status": "published", "topic": topic}
+
+
+# ---------------------------------------------------------------------------
+# Detection export endpoint (Task 6.4)
+# ---------------------------------------------------------------------------
+
+@app.get("/devices/{device_id}/detections/export")
+async def export_detections(
+    device_id: str,
+    from_: Optional[str] = Query(default=None, alias="from"),
+    to: Optional[str] = None,
+    format: str = "csv",
+):
+    """
+    Export detections for a device as CSV.
+
+    Query params:
+      from  (alias: from_) — ISO 8601 start timestamp (inclusive)
+      to                   — ISO 8601 end timestamp (inclusive)
+      format               — export format, default "csv"
+    """
+    from_ts = from_ or ""
+    to_ts = to or "9999-12-31T23:59:59Z"
+    csv_data = await export_detections_csv(device_id, from_ts, to_ts)
+    filename = f"detections_{device_id}.csv"
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Threshold endpoints (Task 7.4)
+# ---------------------------------------------------------------------------
+
+@app.get("/devices/{device_id}/thresholds")
+async def get_thresholds(device_id: str):
+    """Return the alert threshold config for a device."""
+    store = get_threshold_store()
+    config = store.get(device_id)
+    return JSONResponse(content=config.to_dict())
+
+
+@app.put("/devices/{device_id}/thresholds")
+async def update_thresholds(device_id: str, body: dict):
+    """Update the alert threshold config for a device."""
+    store = get_threshold_store()
+    existing = store.get(device_id)
+    # Apply provided fields
+    updated = ThresholdConfig(
+        device_id=device_id,
+        min_confidence=float(body.get("min_confidence", existing.min_confidence)),
+        consecutive_frames=int(body.get("consecutive_frames", existing.consecutive_frames)),
+        alert_classes=list(body.get("alert_classes", existing.alert_classes)),
+    )
+    store.set(device_id, updated)
+    return JSONResponse(content=updated.to_dict())
 
 
 # ---------------------------------------------------------------------------

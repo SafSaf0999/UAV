@@ -118,7 +118,18 @@ def main() -> None:
         mqtt_client=mqtt_client,
         webrtc_streamer=webrtc_streamer,
         model_manager=model_manager,
+        camera=camera,
     )
+
+    # ------------------------------------------------------------------
+    # Optional: IP Webcam handler
+    # ------------------------------------------------------------------
+    ipwebcam_url = config.get("ipwebcam.url")
+    if ipwebcam_url:
+        from edge.ipwebcam_handler import IPWebcamHandler
+        ipwebcam_handler = IPWebcamHandler(ipwebcam_url)
+        command_handler._ipwebcam_handler = ipwebcam_handler
+        logger.info("IPWebcamHandler configured with URL: %s", ipwebcam_url)
 
     # ------------------------------------------------------------------
     # Wire inference engine payload callback
@@ -165,6 +176,17 @@ def main() -> None:
     health_reporter.start()
 
     logger.info("All components started")
+
+    # Publish IP Webcam capabilities if configured
+    if ipwebcam_url:
+        try:
+            import json as _json
+            caps = ipwebcam_handler.fetch_capabilities()
+            caps_topic = f"uav/ipwebcam/capabilities/{config.device_id}"
+            mqtt_client.publish_raw(caps_topic, _json.dumps(caps).encode("utf-8"))
+            logger.info("IPWebcam capabilities published to %s", caps_topic)
+        except Exception as exc:
+            logger.warning("Failed to publish IPWebcam capabilities: %s", exc)
 
     # ------------------------------------------------------------------
     # Graceful shutdown

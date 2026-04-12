@@ -1,314 +1,186 @@
-# Anti-UAV Detection System — Setup & Run Instructions
+# Anti-UAV Detection System — Setup & Run Instructions (v3)
 
 ## Hardware Setup
 
 ```
-Phone (IP Webcam app)
-  └── WiFi Hotspot
-        ├── Main Laptop  (Docker stack, control center)
-        └── Edge Laptop  (inference, connects to main via WiFi)
+Camera Source (IP Webcam / USB / RTSP) — same network
+        │
+        ├── Main Device  ←── Docker stack (broker, aggregation, control center)
+        └── Edge Device  ←── YOLO inference, publishes detections
 ```
-
-Both laptops connect to the **phone's WiFi hotspot**.  
-The phone runs **IP Webcam** (Android) or **EpocCam / Camo** (iOS).
 
 ---
 
 ## 1. Prerequisites
 
-### Both laptops (CachyOS)
+### Both devices (CachyOS/Arch)
 
 ```fish
-# Install Python, Docker, ufw
 sudo pacman -S python python-pip docker docker-compose ufw tk
-
-# Enable Docker
 sudo systemctl enable --now docker
 sudo usermod -aG docker $USER
 # Log out and back in after this
-
-# Enable UFW
 sudo ufw enable
 ```
 
-### Main laptop only
+### Edge device only
 
 ```fish
-# Docker Compose is included with docker on Arch
-docker compose version
-```
-
-### Edge laptop only
-
-```fish
-# Install Python deps for the edge device
+python -m venv .venv
+source .venv/bin/activate.fish
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install -r edge/requirements.txt
-
-# If you don't have a GPU, OpenCV headless is fine (already in requirements.txt)
-# For GPU inference (NVIDIA):
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
 ---
 
-## 2. TLS Certificates (run once on main laptop)
+## 2. TLS Certificates (main device, once)
 
 ```fish
-cd certs
-chmod +x gen_certs.sh
-
-# Generate CA + server cert + one client cert for the edge device
-DEVICE_IDS="edge-01" bash gen_certs.sh
+# Replace with your main device's IP
+FORCE=1 SERVER_IP="<MAIN_IP>" bash certs/gen_certs.sh
 ```
 
-This creates `secrets/ca.crt`, `secrets/server.crt/key`, `secrets/edge-01.crt/key`.
+This creates `secrets/ca.crt` and `secrets/server.crt/key`.
 
-Copy the edge device certs to the edge laptop:
-
+Copy only the CA cert to the edge device (v3 uses password auth, no client certs):
 ```fish
-# From main laptop — replace <EDGE_IP> with the edge laptop's hotspot IP
-scp secrets/ca.crt secrets/edge-01.crt secrets/edge-01.key user@<EDGE_IP>:~/uav-certs/
+scp secrets/ca.crt user@<EDGE_IP>:~/path/to/UAV/secrets/
 ```
 
 ---
 
-## 3. Phone — IP Webcam App
+## 3. Main Device — Start the Stack
 
-1. Install **IP Webcam** (Android) from Play Store.
-2. Open the app → scroll down → tap **Start server**.
-3. Note the URL shown, e.g. `http://192.168.43.1:8080`.
-4. The video stream URL is: `http://192.168.43.1:8080/video`
-5. The sensor URL is: `http://192.168.43.1:8080/sensors.json`
+### Option A: Electron desktop app (recommended)
 
----
+Launch **Anti-UAV Control Center** from the KDE application launcher.
+- Loading screen appears while Docker stack starts
+- Main window opens at `http://localhost:8080` when ready
+- Close window → dialog: "Minimize to Tray" or "Shut Down" (stops all containers)
 
-## 4. Main Laptop — Start the Stack
-
-### Option A: GUI launcher (recommended)
+### Option B: GUI launcher
 
 ```fish
 python launcher_main.py
 ```
 
-In the GUI:
-- Set **MQTT Port** → `8883`
-- Set **Control Center Port** → `8080`
-- Set **Remote Access Mode** → `local`
-- Click **Open Firewall Ports** (enters sudo password in terminal)
-- Click **Start Stack**
-
-The control center opens at `http://localhost:8080`.
-
-### Option B: Terminal
+### Option C: Terminal
 
 ```fish
-cd docker
-cp .env.example .env
-# Edit .env if needed
-docker compose up -d --build
+cp docker/.env.example docker/.env
+# Edit docker/.env — set JWT_SECRET, admin password, MQTT_AUTH_MODE=password
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-Check services are up:
-
-```fish
-docker compose ps
-```
+**First login:** `admin` / `changeme` — change immediately via Settings → Users.
 
 ---
 
-## 5. Edge Laptop — Start Inference
-
-### Option A: GUI launcher (recommended)
+## 4. Edge Device — Start Inference
 
 ```fish
+pkill -f edge.main   # kill stale processes
 python launcher_edge.py
 ```
 
-In the GUI:
-- **Camera URL** → `http://192.168.43.1:8080/video`  
-  *(replace with your phone's IP shown in IP Webcam)*
-- **Main Device IP** → IP of the main laptop on the hotspot  
-  *(run `ip addr` on main laptop, look for the hotspot interface, e.g. `192.168.43.x`)*
-- **MQTT Port** → `8883`
-- **Model .pt path** → browse to your `yolo26_*.pt` file
-- **Active model name** → `daylight-v1` (or whatever you named it)
-- **Device ID** → `edge-01`
-- Click **Save Config**, then **Start Inference**
-
-### Option B: Terminal
-
-```fish
-# Edit edge/config.yaml first
-cp edge/config.example.yaml edge/config.yaml
-nano edge/config.yaml   # or use any editor
-
-# Set EDGE_CONFIG and run
-set -x EDGE_CONFIG (pwd)/edge/config.yaml
-python edge/main.py
-```
+In the launcher:
+- Set camera URL, main device IP, MQTT username/password, model path
+- Click **Test Connection** to verify MQTT
+- Click **Preview Frame** to verify camera
+- Click **Save Config** → **Start Inference**
 
 ---
 
-## 6. Find the Main Laptop's Hotspot IP
+## 5. Offline Map (optional, one-time setup)
 
-On the **main laptop**, run:
+The map uses OpenStreetMap tiles. For offline use, set up the self-hosted tile server:
 
 ```fish
-ip addr show
+# 1. Download your region (example: Sudan ~150MB)
+wget https://download.geofabrik.de/africa/sudan-latest.osm.pbf -O /tmp/region.osm.pbf
+
+# 2. Import into the tile server (takes 5-30 minutes depending on region size)
+docker compose -f docker/docker-compose.yml --profile tiles run --rm \
+  -v /tmp/region.osm.pbf:/data/region.osm.pbf tile-server import
+
+# 3. Add to docker/.env:
+echo "TILE_SERVER_URL=http://localhost:8070/{z}/{x}/{y}.png" >> docker/.env
+
+# 4. Start with tile server enabled
+docker compose -f docker/docker-compose.yml --profile tiles up -d
 ```
 
-Look for the interface connected to the phone hotspot (usually `wlan0` or `wlp*`).  
-The IP will be something like `192.168.43.x`.
-
-Use that IP as **Main Device IP** in the edge launcher.
+After import, the map works fully offline. Tiles are stored in the `tile-data` Docker volume.
 
 ---
 
-## 7. Open the Control Center
+## 6. Firewall Ports (main device)
 
-On the **main laptop**, open a browser:
-
-```
-http://localhost:8080
-```
-
-You should see:
-- **Dashboard** tab — edge-01 device listed as online
-- **Map** tab — device marker at configured lat/lon
-- **Live Feeds** tab — WebRTC stream from the phone camera
-- **PTZ** tab — digital zoom controls
+| Port | Service |
+|------|---------|
+| 8883 | MQTT broker (TLS) |
+| 8080 | Control center web UI |
+| 8090 | WebRTC signaling |
+| 8070 | Tile server (optional, local only) |
 
 ---
 
-## 8. Firewall Ports Summary
+## 7. Install as Android App (PWA)
 
-| Port | Protocol | Service | Open on |
-|------|----------|---------|---------|
-| 8883 | TCP | MQTT broker (TLS) | Main laptop |
-| 8080 | TCP | Control Center | Main laptop |
-| 8090 | TCP | WebRTC Signaling | Main laptop |
-| 8001 | TCP | Aggregation API | Main laptop |
+1. Connect Android to the same network as the main device
+2. Open Chrome → navigate to `http://<main-device-ip>:8080`
+3. Log in → tap ⋮ → **Add to Home Screen**
 
-The launchers handle `ufw allow` automatically. To do it manually:
+---
 
-```fish
-# Main laptop
-sudo ufw allow 8883/tcp
-sudo ufw allow 8080/tcp
-sudo ufw allow 8090/tcp
-sudo ufw allow 8001/tcp
-sudo ufw reload
+## 8. Auth & Invite Tokens
 
-# Edge laptop (usually no inbound ports needed)
-sudo ufw reload
-```
+- Roles: `admin` (full access) | `viewer` (read-only)
+- Invite tokens: `UAV-XXXX-XXXX` format, up to 30 days expiry
+- New users visit `/register?token=UAV-XXXX-XXXX`
+- Every PTZ/command action is written to the audit log
 
 ---
 
 ## 9. Stopping Everything
 
-### Main laptop
+### Electron app
+Close window → **Shut Down** — stops all containers automatically.
 
+### Terminal
 ```fish
-# GUI: click Stop Stack
-# or terminal:
-cd docker && docker compose down
-```
-
-### Edge laptop
-
-```fish
-# GUI: click Stop
-# or terminal: Ctrl+C in the terminal running python edge/main.py
+docker compose -f docker/docker-compose.yml down
+# With tile server:
+docker compose -f docker/docker-compose.yml --profile tiles down
 ```
 
 ---
 
 ## 10. Troubleshooting
 
-**Edge can't connect to MQTT broker**
-- Check the main laptop IP in `edge/config.yaml` → `mqtt.host`
-- Verify port 8883 is open: `sudo ufw status`
-- Check mosquitto logs: `docker compose logs mosquitto`
-
-**Camera stream not working**
-- Open `http://<phone_ip>:8080/video` in a browser on the edge laptop to verify
-- Make sure both laptops are on the same hotspot network
-
-**No detections showing**
-- Verify the `.pt` model path in `edge/config.yaml` → `model_profiles[0].file_path`
-- Check edge logs in the launcher output window
-
-**Control center shows no devices**
-- Check aggregation logs: `docker compose logs aggregation`
-- Verify the edge device is publishing: look for `MQTT connected` in edge launcher output
-
-**Docker permission denied**
-```fish
-sudo usermod -aG docker $USER
-# Then log out and back in
-```
+| Symptom | Fix |
+|---------|-----|
+| Edge not appearing on dashboard | Check `docker compose logs aggregation` |
+| MQTT auth failed | Verify username/password in edge config matches `MQTT_PASSWORD_FILE` |
+| MQTT TLS error | Regenerate certs with correct `SERVER_IP`, copy `ca.crt` to edge |
+| Live feed black / waiting | Start camera source first, then click Stream |
+| Camera test fails (no cv2) | Run from `.venv/bin/python3`, not system python |
+| Login fails | Check `BOOTSTRAP_ADMIN_PASSWORD` in `docker/.env` |
+| Map not loading offline | Run tile server import first (see Section 5) |
+| Electron app hangs on startup | Docker daemon not running: `sudo systemctl start docker` |
 
 ---
 
-## 11. Quick Reference — Key Files
+## 11. Key Files
 
 | File | Purpose |
 |------|---------|
-| `launcher_main.py` | Main laptop GUI |
-| `launcher_edge.py` | Edge laptop GUI |
-| `edge/config.yaml` | Edge device config (auto-generated by GUI) |
-| `docker/.env` | Main device Docker config (auto-generated by GUI) |
-| `certs/gen_certs.sh` | TLS certificate generator |
+| `electron/` | Electron desktop app (KDE launcher entry) |
+| `launcher_main.py` | Main device GUI launcher |
+| `launcher_edge.py` | Edge device GUI launcher |
+| `edge/config.yaml` | Edge device config (auto-generated by launcher) |
+| `docker/.env` | Main device Docker config |
+| `certs/gen_certs.sh` | TLS certificate generator (CA + server only) |
 | `secrets/` | Generated certs (never commit) |
-| `edge/main.py` | Edge device entry point |
-| `docker/docker-compose.yml` | Main device services |
-
----
-
-## 12. Install Control Center as Android App (PWA)
-
-The Anti-UAV Control Center can be installed as a standalone app on Android — no app store required.
-
-1. Connect your Android phone to the same network as the main laptop (or via WireGuard VPN)
-2. Open **Chrome** on Android
-3. Navigate to `http://<main-laptop-ip>:8080`
-4. Log in with your credentials
-5. Tap the **⋮** menu (three dots) → **Add to Home Screen**
-6. Tap **Add** — the app installs with the UAV radar icon
-7. Launch from your home screen — it opens fullscreen with no browser chrome
-
-The PWA works offline for the last-known state and reconnects automatically when the network is available.
-
----
-
-## 13. Remote Access via WireGuard (Android)
-
-For secure remote access from your phone when not on the local network:
-
-See `docker/wireguard/android-peer.md` for the full setup guide.
-
-Quick summary:
-1. Generate a WireGuard key pair for your phone on the main laptop
-2. Add the phone as a peer in the server WireGuard config
-3. Create a peer config file and generate a QR code with `qrencode`
-4. Import the QR code in the WireGuard Android app
-5. Connect — then access `http://10.0.0.1:8080` from your phone
-
----
-
-## 14. First Login
-
-On first startup, the system creates a default admin account:
-
-- Username: `admin` (or the value of `BOOTSTRAP_ADMIN_USERNAME` in `.env`)
-- Password: `changeme` (or the value of `BOOTSTRAP_ADMIN_PASSWORD` in `.env`)
-
-**Change the password immediately** after first login via Settings → Users → Generate Invite → create a new admin account → deactivate the default one.
-
-To invite other users:
-1. Log in as admin
-2. Go to **Settings** → **Users**
-3. Click **Generate Invite**, choose role (viewer/admin), set expiry
-4. Share the token or the registration link with the new user
-5. They visit `/register?token=UAV-XXXX-XXXX` and create their account
+| `edge/edge_sim.py` | Simulated edge device for PTZ follow testing |

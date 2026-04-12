@@ -42,6 +42,12 @@ export function LogsPage() {
   const tableRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Export detections modal state
+  const [showExport, setShowExport] = useState(false);
+  const [exportDevice, setExportDevice] = useState("");
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportTo, setExportTo] = useState("");
+
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
@@ -93,6 +99,15 @@ export function LogsPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportDetections = () => {
+    if (!exportDevice) return;
+    const params = new URLSearchParams({ format: "csv" });
+    if (exportFrom) params.set("from", exportFrom);
+    if (exportTo) params.set("to", exportTo);
+    window.location.href = `/api/devices/${exportDevice}/detections/export?${params}`;
+    setShowExport(false);
+  };
+
   return (
     <div style={{ padding: "var(--ha-space-6)", display: "flex", flexDirection: "column", gap: "var(--ha-space-4)", height: "100%" }}>
       {/* Filter bar */}
@@ -116,10 +131,43 @@ export function LogsPage() {
         <button onClick={exportCsv} style={btnStyle} disabled={entries.length === 0}>
           Export CSV
         </button>
+        <button onClick={() => setShowExport(true)} style={btnStyle}>
+          Export Detections
+        </button>
         <span style={{ fontSize: "var(--ha-font-size-xs)", color: "var(--secondary-text-color)", marginLeft: "auto" }}>
           {entries.length} entries
         </span>
       </div>
+
+      {/* Export Detections modal */}
+      {showExport && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+        }} onClick={() => setShowExport(false)}>
+          <div style={{
+            background: "var(--card-background-color)", borderRadius: "var(--ha-border-radius-lg)",
+            padding: "var(--ha-space-5)", minWidth: 320, display: "flex", flexDirection: "column", gap: "var(--ha-space-3)",
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: "var(--ha-font-size-m)", fontWeight: "bold" }}>Export Detections</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--ha-space-2)" }}>
+              <label style={labelStyle}>Device:</label>
+              <select value={exportDevice} onChange={(e) => setExportDevice(e.target.value)} style={selectStyle}>
+                <option value="">Select device…</option>
+                {Object.keys(devices).map((id) => <option key={id} value={id}>{id}</option>)}
+              </select>
+              <label style={labelStyle}>From:</label>
+              <input type="datetime-local" value={exportFrom} onChange={(e) => setExportFrom(e.target.value)} style={selectStyle} />
+              <label style={labelStyle}>To:</label>
+              <input type="datetime-local" value={exportTo} onChange={(e) => setExportTo(e.target.value)} style={selectStyle} />
+            </div>
+            <div style={{ display: "flex", gap: "var(--ha-space-2)" }}>
+              <button onClick={handleExportDetections} style={btnStyle} disabled={!exportDevice}>Download CSV</button>
+              <button onClick={() => setShowExport(false)} style={btnStyle}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Log table */}
       <div

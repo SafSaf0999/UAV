@@ -4,15 +4,17 @@ Aggregation service — device state registry.
 Thread-safe registry of all known edge device states.
 Updated by the MQTT subscriber as messages arrive.
 
-Requirements: 4.2, 4.3, 6.5, v2-3.4, v2-3.5, v2-4.9, v2-5.6, v2-5.7
+Requirements: 4.2, 4.3, 6.5, v2-3.4, v2-3.5, v2-4.9, v2-5.6, v2-5.7,
+              5.1, 5.2, 6.2, 6.3, 6.4, 7.2, 7.4, 9.1, 9.2
 """
 
 import asyncio
 import inspect
 import logging
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +27,7 @@ class DeviceState:
     """Current known state of one edge device."""
 
     device_id: str
-    status: str = "unknown"          # "online" | "offline" | "unknown"
+    status: str = "unknown"          # "online" | "offline" | "unknown" | "health_timeout"
     active_model: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
@@ -56,6 +58,17 @@ class DeviceState:
     # Last 500 log entries (WARNING+)
     log_entries: list = field(default_factory=list)
 
+    # Monotonic timestamp of last health message (for health timeout checker)
+    last_health_ts: Optional[float] = None
+
+    # PTZ follow: device_id of the leader this device follows (from status payload)
+    follow_leader: Optional[str] = None
+
+    # IP Webcam data
+    ipwebcam_capabilities: Optional[dict] = None
+    ipwebcam_sensors: Optional[dict] = None
+    last_snapshot: Optional[str] = None  # base64-encoded JPEG
+
     def to_dict(self) -> dict:
         return {
             "device_id": self.device_id,
@@ -71,7 +84,10 @@ class DeviceState:
             "last_sensor": self.last_sensor,
             "health": self.health,
             "cert_info": self.cert_info,
-            # Omit log_entries and detection_history from WS push (too large)
+            "follow_leader": self.follow_leader,
+            "ipwebcam_capabilities": self.ipwebcam_capabilities,
+            "ipwebcam_sensors": self.ipwebcam_sensors,
+            # Omit log_entries, detection_history, and last_snapshot from WS push (too large)
         }
 
     def to_dict_full(self) -> dict:
@@ -102,6 +118,18 @@ class DeviceRegistry:
         self._devices: Dict[str, DeviceState] = {}
         self._lock = asyncio.Lock()
         self._listeners: List[Any] = []  # callables notified on state change
+        # Per-device per-label consecutive detection counters for threshold evaluation
+        self._consecutive_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        # MQTT publish callback (injected by app.py lifespan)
+        self._publish_fn: Optional[Callable] = None
+
+    # ------------------------------------------------------------------
+    # Publish function injection
+    # ------------------------------------------------------------------
+
+    def set_publish_fn(self, fn: Callable) -> None:
+        """Inject the MQTT publish callback used for PTZ follow commands."""
+        self._publish_fn = fn
 
     # ------------------------------------------------------------------
     # Listener management (for WebSocket push)
@@ -156,15 +184,72 @@ class DeviceRegistry:
                 state.detection_history.append(entry)
             if len(state.detection_history) > _MAX_DETECTION_HISTORY:
                 state.detection_history = state.detection_history[-_MAX_DETECTION_HISTORY:]
+
+        # Persist detections to DB (best-effort)
+        try:
+            from main.aggregation.detections_db import insert_detections
+            ts = payload.get("timestamp", "")
+            await insert_detections(device_id, ts, detections)
+        except Exception as exc:
+            logger.warning("registry: failed to persist detections for %s: %s", device_id, exc)
+
+        # Evaluate detections against per-device threshold
+        alert_detections = []
+        try:
+            from main.aggregation.thresholds import get_threshold_store
+            threshold = get_threshold_store().get(device_id)
+            for det in detections:
+                label = det.get("label", "")
+                confidence = float(det.get("confidence", 0.0))
+                if label in threshold.alert_classes and confidence >= threshold.min_confidence:
+                    count = self._consecutive_counts[device_id][label] + 1
+                    self._consecutive_counts[device_id][label] = count
+                    if count >= threshold.consecutive_frames:
+                        alert_detections.append(det)
+                else:
+                    # Reset consecutive counter for this label
+                    self._consecutive_counts[device_id][label] = 0
+        except Exception as exc:
+            logger.warning("registry: threshold evaluation failed for %s: %s", device_id, exc)
+            # Fall back: notify for all detections
+            alert_detections = detections
+
+        # Dispatch detection_alert webhook if threshold met
+        if alert_detections:
+            try:
+                from main.aggregation.webhook_dispatcher import get_webhook_dispatcher
+                get_webhook_dispatcher().dispatch(
+                    "detection_alert",
+                    device_id,
+                    {
+                        "detections": alert_detections,
+                        "confidence_max": max(
+                            (float(d.get("confidence", 0.0)) for d in alert_detections),
+                            default=0.0,
+                        ),
+                    },
+                )
+            except Exception as exc:
+                logger.warning("registry: webhook dispatch failed for %s: %s", device_id, exc)
+
+        # PTZ follow: check if any device follows this device_id as leader
+        if detections and self._publish_fn is not None:
+            try:
+                await self._dispatch_ptz_follow(device_id, payload, detections)
+            except Exception as exc:
+                logger.warning("registry: PTZ follow dispatch failed: %s", exc)
+
         await self._notify(device_id)
 
     async def update_status(self, device_id: str, status_payload: dict) -> None:
         """Update device online/offline status from a Status_Payload dict."""
         if not device_id:
             return
+        new_status = status_payload.get("status", "unknown")
         async with self._lock:
             state = self._devices.setdefault(device_id, DeviceState(device_id=device_id))
-            state.status = status_payload.get("status", "unknown")
+            old_status = state.status
+            state.status = new_status
             state.last_status_ts = status_payload.get("timestamp")
             if status_payload.get("active_model"):
                 state.active_model = status_payload["active_model"]
@@ -174,6 +259,20 @@ class DeviceRegistry:
                 state.lon = float(status_payload["lon"])
             if status_payload.get("cert_info"):
                 state.cert_info = status_payload["cert_info"]
+            if "follow_leader" in status_payload:
+                state.follow_leader = status_payload["follow_leader"]
+
+        # Dispatch webhooks for online/offline transitions
+        try:
+            from main.aggregation.webhook_dispatcher import get_webhook_dispatcher
+            dispatcher = get_webhook_dispatcher()
+            if new_status == "online" and old_status != "online":
+                dispatcher.dispatch("device_online", device_id, {"status": new_status})
+            elif new_status == "offline" and old_status != "offline":
+                dispatcher.dispatch("device_offline", device_id, {"status": new_status})
+        except Exception as exc:
+            logger.warning("registry: webhook dispatch failed for status %s: %s", device_id, exc)
+
         await self._notify(device_id)
 
     async def update_ptz_status(self, payload: dict) -> None:
@@ -204,6 +303,7 @@ class DeviceRegistry:
         async with self._lock:
             state = self._devices.setdefault(device_id, DeviceState(device_id=device_id))
             state.health = payload
+            state.last_health_ts = time.monotonic()
         await self._notify(device_id)
 
     async def update_log(self, entry: dict) -> None:
@@ -217,6 +317,105 @@ class DeviceRegistry:
             if len(state.log_entries) > _MAX_LOG_ENTRIES:
                 state.log_entries = state.log_entries[-_MAX_LOG_ENTRIES:]
         # No WS notify for log entries
+
+    async def update_ipwebcam_capabilities(self, device_id: str, data: dict) -> None:
+        """Store IP Webcam capabilities for a device."""
+        if not device_id:
+            return
+        async with self._lock:
+            state = self._devices.setdefault(device_id, DeviceState(device_id=device_id))
+            state.ipwebcam_capabilities = data
+        await self._notify(device_id)
+
+    async def update_ipwebcam_sensors(self, device_id: str, data: dict) -> None:
+        """Store latest IP Webcam sensor data for a device."""
+        if not device_id:
+            return
+        async with self._lock:
+            state = self._devices.setdefault(device_id, DeviceState(device_id=device_id))
+            state.ipwebcam_sensors = data
+        await self._notify(device_id)
+
+    async def update_snapshot(self, device_id: str, data: str) -> None:
+        """Store latest snapshot (base64) and forward via _notify with snapshot key."""
+        if not device_id:
+            return
+        async with self._lock:
+            state = self._devices.setdefault(device_id, DeviceState(device_id=device_id))
+            state.last_snapshot = data
+        # Notify with a special snapshot key so listeners can forward it
+        snapshot_state = {"snapshot": data, "device_id": device_id}
+        for cb in list(self._listeners):
+            try:
+                if inspect.iscoroutinefunction(cb):
+                    await cb(device_id, snapshot_state)
+                else:
+                    cb(device_id, snapshot_state)
+            except Exception as exc:
+                logger.warning("DeviceRegistry: snapshot listener error: %s", exc)
+
+    # ------------------------------------------------------------------
+    # PTZ follow helper
+    # ------------------------------------------------------------------
+
+    async def _dispatch_ptz_follow(
+        self, leader_id: str, payload: dict, detections: list
+    ) -> None:
+        """
+        For each device that has follow_leader == leader_id, compute bearing
+        from the first detection's bounding box center and publish a PTZ command.
+        """
+        from main.aggregation.ptz_follow import compute_bearing
+        import json
+
+        # Get compass bearing from leader's last sensor payload
+        async with self._lock:
+            leader_state = self._devices.get(leader_id)
+            compass_bearing = 0.0
+            if leader_state and leader_state.last_sensor:
+                compass_bearing = float(
+                    leader_state.last_sensor.get("compass_bearing", 0.0)
+                )
+            # Find all followers
+            followers = [
+                s.device_id
+                for s in self._devices.values()
+                if s.follow_leader == leader_id
+            ]
+
+        if not followers:
+            return
+
+        # Use first detection's bbox center
+        first_det = detections[0]
+        bbox = first_det.get("bbox") or [0.0, 0.0, 0.0, 0.0]
+        if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+            cx = float(bbox[0]) + float(bbox[2]) / 2.0
+        else:
+            cx = 0.5
+
+        bearing = compute_bearing(cx, compass_bearing)
+        ptz_payload = json.dumps({
+            "command": "absolute_pan",
+            "params": {"bearing": bearing},
+            "source": "ptz_follow",
+            "leader_id": leader_id,
+        })
+
+        for follower_id in followers:
+            topic = f"uav/ptz/{follower_id}"
+            try:
+                import asyncio as _asyncio
+                loop = _asyncio.get_event_loop()
+                await loop.run_in_executor(None, self._publish_fn, topic, ptz_payload)
+                logger.debug(
+                    "registry: PTZ follow: sent bearing=%.1f to %s (leader=%s)",
+                    bearing, follower_id, leader_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "registry: PTZ follow publish failed for %s: %s", follower_id, exc
+                )
 
     # ------------------------------------------------------------------
     # Read methods

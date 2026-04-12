@@ -40,18 +40,20 @@ class CameraVideoTrack:
     installed (e.g. in unit tests that mock it).
     """
 
-    def __new__(cls, frame_queue: queue.Queue, fps: int = 15):
+    def __new__(cls, frame_queue: queue.Queue, fps: int = 15, stop_event: threading.Event = None):
         from aiortc.mediastreams import VideoStreamTrack  # type: ignore
         import av  # type: ignore
 
         class _Track(VideoStreamTrack):
             kind = "video"
 
-            def __init__(self, fq: queue.Queue, target_fps: int) -> None:
+            def __init__(self, fq: queue.Queue, target_fps: int, se: threading.Event) -> None:
                 super().__init__()
                 self._queue = fq
                 self._fps = target_fps
                 self._pts = 0
+                self._stop_event = se
+                self._last_frame = None
 
             async def recv(self):
                 # Block until a frame is available (with timeout to allow stop)
@@ -68,12 +70,21 @@ class CameraVideoTrack:
             def _get_frame(self) -> np.ndarray:
                 while True:
                     try:
-                        return self._queue.get(timeout=0.1)
+                        frame = self._queue.get(timeout=0.05)
+                        self._last_frame = frame
+                        return frame
                     except Exception:
-                        # Return a black frame if queue is empty
-                        return np.zeros((480, 640, 3), dtype=np.uint8)
+                        # Check stop event
+                        if self._stop_event is not None and self._stop_event.is_set():
+                            if self._last_frame is not None:
+                                return self._last_frame
+                            return np.zeros((480, 640, 3), dtype=np.uint8)
+                        # Return last frame if we have one, otherwise keep looping
+                        if self._last_frame is not None:
+                            return self._last_frame
+                        # No frame ever received — sleep 50ms and retry
 
-        return _Track(frame_queue, fps)
+        return _Track(frame_queue, fps, stop_event or threading.Event())
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +112,7 @@ class WebRTCStreamer:
         self._ws = None          # websockets connection
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
 
     # ------------------------------------------------------------------
     # Public API (called from sync context by CommandHandler)
@@ -112,6 +124,7 @@ class WebRTCStreamer:
             logger.info("WebRTCStreamer: already running")
             return
         self._running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run_event_loop, daemon=True, name="webrtc-streamer"
         )
@@ -123,6 +136,7 @@ class WebRTCStreamer:
         if not self._running:
             return
         self._running = False
+        self._stop_event.set()
         if self._loop and not self._loop.is_closed():
             asyncio.run_coroutine_threadsafe(self._shutdown(), self._loop)
         if self._thread:
@@ -223,8 +237,11 @@ class WebRTCStreamer:
 
         self._pc = RTCPeerConnection()
 
+        # Wait for the first frame before adding the track (avoids black screen)
+        await self._wait_for_first_frame(timeout=10.0)
+
         # Add video track
-        track = CameraVideoTrack(self._frame_queue, self._fps)
+        track = CameraVideoTrack(self._frame_queue, self._fps, self._stop_event)
         self._pc.addTrack(track)
 
         # ICE candidate handler
@@ -257,6 +274,19 @@ class WebRTCStreamer:
             "sdpType": self._pc.localDescription.type,
         }))
         logger.info("WebRTCStreamer: offer sent")
+
+    async def _wait_for_first_frame(self, timeout: float = 10.0) -> None:
+        """
+        Poll the frame queue until a frame is available or timeout expires.
+        This ensures the WebRTC track starts with real video data.
+        """
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            if not self._frame_queue.empty():
+                logger.info("WebRTCStreamer: first frame available, proceeding with offer")
+                return
+            await asyncio.sleep(0.1)
+        logger.warning("WebRTCStreamer: timed out waiting for first frame (%.1fs)", timeout)
 
     async def _shutdown(self) -> None:
         if self._pc is not None:

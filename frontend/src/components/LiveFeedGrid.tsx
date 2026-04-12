@@ -53,6 +53,15 @@ function useWebRTCStream(device_id: string, videoRef: React.RefObject<HTMLVideoE
   useEffect(() => {
     let cancelled = false;
 
+    // Attach canplay listener to video element to transition to "connected"
+    const video = videoRef.current;
+    const onCanPlay = () => {
+      if (!cancelled) setStreamState("connected");
+    };
+    if (video) {
+      video.addEventListener("canplay", onCanPlay);
+    }
+
     function connect() {
       const ws = new WebSocket(SIGNALING_URL);
       wsRef.current = ws;
@@ -63,7 +72,7 @@ function useWebRTCStream(device_id: string, videoRef: React.RefObject<HTMLVideoE
       pc.ontrack = (event) => {
         if (videoRef.current && event.streams[0]) {
           videoRef.current.srcObject = event.streams[0];
-          setStreamState("connected");
+          videoRef.current.play().catch(() => {});
         }
       };
 
@@ -117,6 +126,7 @@ function useWebRTCStream(device_id: string, videoRef: React.RefObject<HTMLVideoE
 
     return () => {
       cancelled = true;
+      if (video) video.removeEventListener("canplay", onCanPlay);
       pcRef.current?.close();
       wsRef.current?.close();
     };
@@ -159,6 +169,7 @@ function FeedCell({ device }: { device: DeviceState }) {
         autoPlay
         playsInline
         muted
+        onCanPlay={() => { videoRef.current?.play().catch(() => {}); }}
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
         aria-label={`Live feed from ${device.device_id}`}
       />

@@ -42,7 +42,13 @@ export function DeviceCard({ device }: Props) {
       {/* Header row */}
       <div style={{ display: "flex", alignItems: "center", gap: "var(--ha-space-2)", marginBottom: "var(--ha-space-3)" }}>
         <Badge
-          variant={device.status === "online" ? "online" : device.status === "offline" ? "offline" : "unknown"}
+          variant={
+            device.status === "online" ? "online"
+            : device.status === "offline" ? "offline"
+            : device.status === "health_timeout" ? "health_timeout"
+            : "unknown"
+          }
+          label={device.status === "health_timeout" ? "Health Timeout" : undefined}
         />
         <span style={{
           flex: 1,
