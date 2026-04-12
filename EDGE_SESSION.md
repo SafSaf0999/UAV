@@ -1,69 +1,26 @@
-# Edge Device Session — Changes & Status
+# Edge Device Session — Changes & Status (v3)
 
-## What Was Done
+## What Changed in v3
 
-### 1. Python venv + dependencies
-CPU-only torch must be installed first to avoid pulling CUDA packages (2GB+):
-```bash
-python -m venv .venv
-source .venv/bin/activate.fish  # or .venv/bin/activate for bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-pip install -r edge/requirements.txt
-```
+### MQTT Authentication
+- **Before**: TLS client certificates (ca.crt + edge-01.crt + edge-01.key)
+- **After**: Username/password only — only `ca.crt` needed on edge device
+- Edge config now uses `mqtt.username` and `mqtt.password` fields
+- `mqtt_client.py` uses `username_pw_set()` as primary auth path
 
-### 2. TLS — server cert missing IP SAN
-The original `certs/gen_certs.sh` didn't include a Subject Alternative Name for the broker IP.
-The script was updated to support a `SERVER_IP` env var that adds `IP:<addr>` to the SAN.
+### Command Handler Additions
+- `update_config` — live update camera source, FPS, active model without restart
+- `ipwebcam_control` — proxy controls to IP Webcam HTTP API (zoom, torch, ISO, etc.)
+- `ipwebcam_sensors` — fetch and publish phone sensor data
 
-The server cert was manually regenerated on the main laptop:
-```bash
-cd ~/Projects/UAV/UAV/secrets
-echo "subjectAltName=DNS:localhost,IP:10.86.85.6" > san.ext
-openssl req -new -key server.key -out server.csr -subj "/CN=localhost/O=AntiUAV/OU=Broker"
-openssl x509 -req -days 3650 -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -extfile san.ext -out server.crt
-rm server.csr san.ext
-```
+### New Files
+- `edge/ipwebcam_handler.py` — IP Webcam HTTP API proxy with 5-min capability cache
+- `edge/edge_sim.py` — simulated edge device for PTZ follow testing
 
-Then mosquitto was restarted:
-```bash
-cd ~/Projects/UAV/UAV/docker
-docker compose restart mosquitto
-```
-
-For future cert regeneration use:
-```bash
-FORCE=1 SERVER_IP="10.86.85.6" DEVICE_IDS="edge-01" bash certs/gen_certs.sh
-```
-
-### 3. Code fixes
-
-**`edge/main.py`** — `CameraSource` was called with wrong arguments:
-```python
-# Before
-camera = CameraSource(config, frame_queue)
-# After
-camera = CameraSource(
-    source=config.get("camera.source"),
-    fps=int(config.get("camera.fps", 15)),
-    frame_queue=frame_queue,
-)
-```
-
-**`edge/inference_engine.py`** — wrong tracker name:
-```python
-# Before
-tracker="bytetrack"
-# After
-tracker="bytetrack.yaml"
-```
-
-**`edge/camera.py`** — added MJPEG-over-HTTP support for IP Webcam (opencv-python-headless has no FFMPEG for HTTP URLs). HTTP sources now use a manual JPEG boundary parser instead of `cv2.VideoCapture`.
-
-**`launcher_edge.py`** — multiple fixes:
-- Runs `python -m edge.main` from project root (not `python main.py` from `edge/`)
-- Added TLS cert path fields (CA cert, client cert, client key) to the GUI and config builder
-- Added scrollable canvas so the window fits small screens
-- Browse dialog supports `.crt`/`.key` files
+### WebRTC Black Screen Fix
+- `CameraVideoTrack._get_frame()` now returns last good frame when queue is empty
+- `WebRTCStreamer._create_offer()` waits for first real frame before sending offer
+- Frontend `useWebRTCStream` hook: `play()` called on `ontrack`, state transitions on `canplay`
 
 ---
 
@@ -72,48 +29,54 @@ tracker="bytetrack.yaml"
 ```yaml
 device_id: edge-01
 mqtt:
-  host: 10.86.85.6   # main laptop hotspot IP
+  host: 10.196.175.6
   port: 8883
+  username: edge-01
+  password: <set in launcher>
   tls:
     ca_cert: ./secrets/ca.crt
-    client_cert: ./secrets/edge-01.crt
-    client_key: ./secrets/edge-01.key
 camera:
-  source: http://10.86.85.152:8080/video  # phone IP Webcam
-  fps: 30
+  source: http://<camera-ip>:8080/video
+  fps: 15
 location:
   lat: 15.628
   lon: 32.489
-active_model: daylight-v1
+active_model: BirdDrone-2C-FT
 model_profiles:
-  - name: daylight-v1
-    file_path: /home/mubarak/Project/UAV/UAV/yolov8n.pt
+  - name: BirdDrone-2C-FT
+    file_path: /path/to/training/finetuned/BirdDrone-2C/weights/best.pt
     camera_mode: daylight
 signaling:
-  url: ws://10.86.85.6:8090
+  url: ws://10.196.175.6:8090
+ipwebcam:
+  url: http://<phone-ip>:8080   # optional
 ```
 
 ---
 
 ## Current Status
 
-- MQTT: connected to main laptop on port 8883 with TLS
-- Camera: phone IP Webcam at `http://10.86.85.152:8080/video` — working
-- Inference: running with `yolov8n.pt` (placeholder model)
-- WebRTC live feed: streamer starts on `start_stream` MQTT command from frontend
+- MQTT: username/password auth to main laptop on port 8883 with TLS
+- Camera: IP Webcam or USB/RTSP source
+- Inference: BirdDrone-2C-FT recommended (mAP@0.5=0.969, bird FA=0.3%)
+- WebRTC: black screen fix applied — streams real frames immediately
+- IP Webcam controls: available in Device Detail page when `ipwebcam.url` is set
 - Edge device appears on Dashboard and Map at `http://localhost:8080`
 
 ---
 
-## Main Laptop — Required Actions
+## Resuming Edge Device Work
 
-If certs were regenerated, copy updated certs back to edge device:
-```bash
-scp secrets/ca.crt secrets/edge-01.crt secrets/edge-01.key mubarak@<EDGE_IP>:~/Project/UAV/UAV/secrets/
+```fish
+# On edge laptop
+pkill -f edge.main
+cd /home/mubarak/Project/UAV-2/UAV
+python launcher_edge.py
 ```
 
-Verify mosquitto has the correct server cert:
-```bash
-openssl x509 -in secrets/server.crt -noout -text | grep -A2 "Subject Alternative"
-# Should show: DNS:localhost, IP Address:10.86.85.6
+Or headless:
+```fish
+set -x EDGE_CONFIG (pwd)/edge/config.yaml
+set -x YOLO_AUTOINSTALL false
+.venv/bin/python -m edge.main
 ```
