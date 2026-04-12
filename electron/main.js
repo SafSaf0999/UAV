@@ -71,6 +71,32 @@ function createMainWindow() {
     if (loadingWindow) { loadingWindow.close() }
     mainWindow.show()
   })
+
+  // Intercept close — ask user: minimize to tray or shut down
+  mainWindow.on('close', (e) => {
+    e.preventDefault()
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'question',
+      title: 'Close Anti-UAV Control Center',
+      message: 'What would you like to do?',
+      detail: 'Minimizing to tray keeps the Docker stack running.\nShutting down will stop all services.',
+      buttons: ['Minimize to Tray', 'Shut Down'],
+      defaultId: 0,
+      cancelId: 0,
+    })
+    if (choice === 0) {
+      // Minimize to tray — just hide the window
+      mainWindow.hide()
+    } else {
+      // Shut down — stop Docker stack then quit
+      mainWindow.hide()
+      composeDown(() => {
+        mainWindow = null
+        app.exit(0)
+      })
+    }
+  })
+
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
