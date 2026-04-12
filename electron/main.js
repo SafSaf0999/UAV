@@ -1,8 +1,7 @@
 'use strict'
 
-const { app, BrowserWindow, Tray, Menu, dialog, nativeImage } = require('electron')
+const { app, BrowserWindow, Tray, Menu, dialog, nativeImage, net } = require('electron')
 const { spawn } = require('child_process')
-const http = require('http')
 const path = require('path')
 
 const composePath = path.join(__dirname, '..', 'docker', 'docker-compose.yml')
@@ -106,17 +105,18 @@ function pollStack(onReady, onTimeout) {
   const started = Date.now()
 
   function attempt() {
-    http.get(POLL_URL, (res) => {
-      if (res.statusCode === 200 || res.statusCode === 401) {
+    // Use Electron's net.request — works correctly inside the Electron sandbox
+    const req = net.request(POLL_URL)
+    req.on('response', (res) => {
+      if (res.statusCode === 200 || res.statusCode === 401 || res.statusCode === 302) {
         clearTimeout(timeoutTimer)
         onReady()
       } else {
         scheduleNext()
       }
-      res.resume()
-    }).on('error', () => {
-      scheduleNext()
     })
+    req.on('error', () => { scheduleNext() })
+    req.end()
   }
 
   function scheduleNext() {
@@ -180,27 +180,28 @@ function start() {
   createLoadingWindow()
   createTray()
 
+  // Start the stack (no-op if already running)
   composeUp()
 
-  pollStack(
-    // ready
-    () => { createMainWindow() },
-    // timeout
-    () => {
-      const choice = dialog.showMessageBoxSync({
-        type: 'error',
-        title: 'Startup failed',
-        message: 'Docker stack did not become ready within 60 seconds.',
-        buttons: ['Retry', 'Quit']
-      })
-      if (choice === 0) {
-        // Retry
-        start()
-      } else {
-        app.quit()
+  // Give compose a moment to settle, then start polling
+  setTimeout(() => {
+    pollStack(
+      () => { createMainWindow() },
+      () => {
+        const choice = dialog.showMessageBoxSync({
+          type: 'error',
+          title: 'Startup failed',
+          message: 'Docker stack did not become ready within 60 seconds.',
+          buttons: ['Retry', 'Quit']
+        })
+        if (choice === 0) {
+          start()
+        } else {
+          app.quit()
+        }
       }
-    }
-  )
+    )
+  }, 500)
 }
 
 app.whenReady().then(start)
