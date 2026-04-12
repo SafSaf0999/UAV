@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
 Anti-UAV Control Center — Main Device Launcher
-Simplified GUI: 3 primary fields, collapsible Advanced section,
-live service health panel, and a Certs tab with cert wizard.
+Three-tab UI: Config, Status, Logs.
 """
 
+import json
 import os
 import subprocess
 import threading
 import tkinter as tk
 import webbrowser
-from tkinter import font as tkfont, scrolledtext, ttk
+from tkinter import font as tkfont, ttk
 
 DOCKER_DIR = os.path.join(os.path.dirname(__file__), "docker")
 ENV_FILE = os.path.join(DOCKER_DIR, ".env")
@@ -31,10 +31,16 @@ DEFAULTS = {
     "BOOTSTRAP_ADMIN_PASSWORD": "changeme",
 }
 
-SERVICES = ["mosquitto", "aggregation", "control-center", "signaling", "ha_bridge"]
+SERVICES = ["mosquitto", "aggregation", "frontend-builder", "control-center", "signaling", "ha_bridge"]
 
-BG = "#0f172a"; CARD = "#1e293b"; ACC = "#3b82f6"; FG = "#f1f5f9"; DIM = "#94a3b8"
-GREEN = "#22c55e"; RED = "#ef4444"; AMBER = "#f59e0b"
+BG = "#0f172a"
+CARD = "#1e293b"
+ACC = "#3b82f6"
+FG = "#f1f5f9"
+DIM = "#94a3b8"
+GREEN = "#22c55e"
+RED = "#ef4444"
+AMBER = "#f59e0b"
 
 
 def load_env():
@@ -57,48 +63,34 @@ def save_env(values):
             f.write(f"{k}={v}\n")
 
 
-def run_cmd(cmd, cwd, log_widget):
-    def _append(text):
-        log_widget.after(0, lambda: _append_safe(text))
-
-    def _append_safe(text):
-        log_widget.configure(state="normal")
-        log_widget.insert(tk.END, text)
-        log_widget.see(tk.END)
-        log_widget.configure(state="disabled")
-
-    try:
-        proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, bufsize=1)
-        for line in proc.stdout:
-            _append(line)
-        proc.wait()
-        return proc.returncode
-    except FileNotFoundError as e:
-        _append(f"\nERROR: {e}\n")
-        return 1
-
-
 def get_service_status():
-    """Return dict of service_name → 'running'|'stopped'|'unknown'."""
+    """Return dict of service_name -> 'running'|'exited'|'unknown' via docker compose ps --format json."""
     try:
         result = subprocess.run(
-            ["docker", "compose", "ps", "--format", "{{.Service}}\t{{.State}}"],
+            ["docker", "compose", "ps", "--format", "json"],
             cwd=DOCKER_DIR, capture_output=True, text=True, timeout=5
         )
         status = {}
         for line in result.stdout.strip().splitlines():
-            parts = line.split("\t")
-            if len(parts) == 2:
-                status[parts[0]] = parts[1]
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                name = obj.get("Service", obj.get("Name", ""))
+                state = obj.get("State", obj.get("Status", "")).lower()
+                if name:
+                    status[name] = state
+            except json.JSONDecodeError:
+                pass
         return status
     except Exception:
         return {}
 
 
 def read_cert_info():
-    """Return list of (filename, cn, expiry, valid) for certs in secrets/."""
-    import ssl, datetime
+    import ssl
+    import datetime
     certs = []
     if not os.path.exists(SECRETS_DIR):
         return certs
@@ -129,104 +121,159 @@ class MainLauncher(tk.Tk):
         super().__init__()
         self.title("Anti-UAV — Main Device Launcher")
         self.configure(bg=BG)
+        self.geometry("820x680")
         self.resizable(True, True)
         self._running = False
+        self._log_proc = None
+        self._log_thread = None
         self._health_job = None
+        self._proc_locks = {}
+        self._apply_style()
         self._build_ui()
         self._schedule_health_poll()
 
+    def _apply_style(self):
+        style = ttk.Style(self)
+        style.theme_use("default")
+        style.configure("TNotebook", background=BG, borderwidth=0)
+        style.configure("TNotebook.Tab", background=CARD, foreground=DIM,
+                        padding=[12, 6], font=("monospace", 10))
+        style.map("TNotebook.Tab",
+                  background=[("selected", ACC)],
+                  foreground=[("selected", "#ffffff")])
+        style.configure("TFrame", background=BG)
+
     def _build_ui(self):
         title_font = tkfont.Font(family="monospace", size=13, weight="bold")
+        tk.Label(self, text="Anti-UAV Control Center — Main Device",
+                 bg=BG, fg=FG, font=title_font).pack(pady=(14, 6))
+
+        nb = ttk.Notebook(self)
+        nb.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+
+        config_frame = tk.Frame(nb, bg=BG)
+        status_frame = tk.Frame(nb, bg=BG)
+        logs_frame = tk.Frame(nb, bg=BG)
+
+        nb.add(config_frame, text="  Config  ")
+        nb.add(status_frame, text="  Status  ")
+        nb.add(logs_frame, text="  Logs  ")
+
+        self._build_config_tab(config_frame)
+        self._build_status_tab(status_frame)
+        self._build_logs_tab(logs_frame)
+
+        # Start log tailing when Logs tab is selected
+        nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+    # ── Config tab ─────────────────────────────────────────────────────────
+
+    def _build_config_tab(self, parent):
         label_font = tkfont.Font(family="monospace", size=10)
         btn_font = tkfont.Font(family="monospace", size=10, weight="bold")
+        sec_font = tkfont.Font(family="monospace", size=10, weight="bold")
 
-        tk.Label(self, text="Anti-UAV Control Center — Main Device",
-                 bg=BG, fg=FG, font=title_font).pack(pady=(14, 2))
+        canvas = tk.Canvas(parent, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scroll_frame = tk.Frame(canvas, bg=BG)
 
-        # Notebook (Stack tab + Certs tab)
-        nb = ttk.Notebook(self)
-        nb.pack(fill="both", expand=True, padx=16, pady=8)
+        scroll_frame.bind("<Configure>",
+                          lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
 
-        stack_frame = tk.Frame(nb, bg=BG)
-        certs_frame = tk.Frame(nb, bg=BG)
-        nb.add(stack_frame, text="  Stack  ")
-        nb.add(certs_frame, text="  Certs  ")
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
-        self._build_stack_tab(stack_frame, label_font, btn_font)
-        self._build_certs_tab(certs_frame, label_font, btn_font)
-
-    # ── Stack tab ──────────────────────────────────────────────────────────
-
-    def _build_stack_tab(self, parent, label_font, btn_font):
         env = load_env()
         self._vars = {}
 
-        # Primary fields
-        primary = tk.Frame(parent, bg="#1e293b", padx=14, pady=10)
-        primary.pack(fill="x", padx=8, pady=4)
+        def section(title):
+            f = tk.Frame(scroll_frame, bg=CARD, padx=14, pady=8)
+            f.pack(fill="x", padx=8, pady=3)
+            tk.Label(f, text=title, bg=CARD, fg=ACC, font=sec_font, anchor="w").grid(
+                row=0, column=0, columnspan=3, sticky="w", pady=(0, 4))
+            return f
 
-        primary_fields = [
-            ("MQTT Port", "MQTT_PORT"),
-            ("Control Center Port", "CONTROL_CENTER_PORT"),
-            ("Remote Access Mode", "REMOTE_ACCESS_MODE"),
-        ]
-        for r, (lbl, key) in enumerate(primary_fields):
-            tk.Label(primary, text=lbl + ":", bg="#1e293b", fg=DIM,
-                     font=label_font, anchor="w", width=22).grid(row=r, column=0, sticky="w", pady=3)
+        def field_row(parent, r, label, key):
+            tk.Label(parent, text=label + ":", bg=CARD, fg=DIM, font=label_font,
+                     anchor="w", width=24).grid(row=r, column=0, sticky="w", pady=2)
             var = tk.StringVar(value=env.get(key, DEFAULTS.get(key, "")))
             self._vars[key] = var
-            tk.Entry(primary, textvariable=var, bg=BG, fg=FG, insertbackground=FG,
-                     font=label_font, relief="flat", width=26).grid(row=r, column=1, sticky="ew", padx=(8, 0), pady=3)
-        primary.columnconfigure(1, weight=1)
+            tk.Entry(parent, textvariable=var, bg=BG, fg=FG, insertbackground=FG,
+                     font=label_font, relief="flat", width=28).grid(
+                row=r, column=1, sticky="ew", padx=(8, 0), pady=2)
+            parent.columnconfigure(1, weight=1)
 
-        # Advanced toggle
-        self._adv_visible = tk.BooleanVar(value=False)
-        adv_btn = tk.Button(parent, text="▶ Advanced", bg=BG, fg=DIM, font=label_font,
-                            relief="flat", anchor="w", command=self._toggle_advanced)
-        adv_btn.pack(fill="x", padx=8)
-        self._adv_btn = adv_btn
+        # Primary config
+        prim = section("Network")
+        field_row(prim, 1, "MQTT Port", "MQTT_PORT")
+        field_row(prim, 2, "Control Center Port", "CONTROL_CENTER_PORT")
+        field_row(prim, 3, "Remote Access Mode", "REMOTE_ACCESS_MODE")
 
-        self._adv_frame = tk.Frame(parent, bg="#1e293b", padx=14, pady=10)
-        adv_fields = [
-            ("Aggregation Port", "AGGREGATION_PORT"),
-            ("Signaling Port", "SIGNALING_PORT"),
-            ("HTTPS Token", "HTTPS_TOKEN"),
-            ("Radar Enabled", "RADAR_ENABLED"),
-            ("JWT Secret", "JWT_SECRET"),
-            ("Bootstrap Admin", "BOOTSTRAP_ADMIN_USERNAME"),
-            ("Bootstrap Password", "BOOTSTRAP_ADMIN_PASSWORD"),
-        ]
-        for r, (lbl, key) in enumerate(adv_fields):
-            tk.Label(self._adv_frame, text=lbl + ":", bg="#1e293b", fg=DIM,
-                     font=label_font, anchor="w", width=22).grid(row=r, column=0, sticky="w", pady=2)
-            var = tk.StringVar(value=env.get(key, DEFAULTS.get(key, "")))
-            self._vars[key] = var
-            tk.Entry(self._adv_frame, textvariable=var, bg=BG, fg=FG, insertbackground=FG,
-                     font=label_font, relief="flat", width=26).grid(row=r, column=1, sticky="ew", padx=(8, 0), pady=2)
-        self._adv_frame.columnconfigure(1, weight=1)
+        # Auth config
+        auth = section("Auth")
+        field_row(auth, 1, "JWT Secret", "JWT_SECRET")
+        field_row(auth, 2, "Admin Username", "BOOTSTRAP_ADMIN_USERNAME")
+        field_row(auth, 3, "Admin Password", "BOOTSTRAP_ADMIN_PASSWORD")
 
-        # Service health panel
-        health_frame = tk.Frame(parent, bg="#1e293b", padx=14, pady=8)
-        health_frame.pack(fill="x", padx=8, pady=4)
-        tk.Label(health_frame, text="Service Health", bg="#1e293b", fg=DIM,
-                 font=label_font).grid(row=0, column=0, columnspan=len(SERVICES), sticky="w", pady=(0, 4))
-        self._health_labels = {}
+        # Advanced config
+        adv = section("Advanced")
+        field_row(adv, 1, "Aggregation Port", "AGGREGATION_PORT")
+        field_row(adv, 2, "Signaling Port", "SIGNALING_PORT")
+        field_row(adv, 3, "HTTPS Token", "HTTPS_TOKEN")
+        field_row(adv, 4, "Radar Enabled", "RADAR_ENABLED")
+        field_row(adv, 5, "JWT TTL Hours", "JWT_TTL_HOURS")
+
+        # Certs section
+        certs_sec = section("Certificates")
+        tk.Label(certs_sec, text="Server IP:", bg=CARD, fg=DIM, font=label_font,
+                 anchor="w", width=24).grid(row=1, column=0, sticky="w", pady=2)
+        self._cert_server_ip = tk.StringVar()
+        tk.Entry(certs_sec, textvariable=self._cert_server_ip, bg=BG, fg=FG,
+                 insertbackground=FG, font=label_font, relief="flat", width=28).grid(
+            row=1, column=1, sticky="ew", padx=(8, 0), pady=2)
+        tk.Label(certs_sec, text="Device IDs:", bg=CARD, fg=DIM, font=label_font,
+                 anchor="w", width=24).grid(row=2, column=0, sticky="w", pady=2)
+        self._cert_device_ids = tk.StringVar(value="edge-01")
+        tk.Entry(certs_sec, textvariable=self._cert_device_ids, bg=BG, fg=FG,
+                 insertbackground=FG, font=label_font, relief="flat", width=28).grid(
+            row=2, column=1, sticky="ew", padx=(8, 0), pady=2)
+        tk.Button(certs_sec, text="Generate Certs", bg=ACC, fg="#fff", font=label_font,
+                  relief="flat", padx=8, pady=4,
+                  command=self._generate_certs).grid(row=3, column=0, columnspan=2,
+                                                     sticky="w", pady=(6, 2))
+        certs_sec.columnconfigure(1, weight=1)
+
+        # Per-service controls
+        svc_sec = section("Services")
         for i, svc in enumerate(SERVICES):
-            dot = tk.Label(health_frame, text="●", bg="#1e293b", fg=DIM, font=label_font)
-            dot.grid(row=1, column=i * 2, padx=(0, 2))
-            lbl = tk.Label(health_frame, text=svc, bg="#1e293b", fg=DIM, font=label_font)
-            lbl.grid(row=1, column=i * 2 + 1, padx=(0, 12))
-            self._health_labels[svc] = dot
+            r = i + 1
+            tk.Label(svc_sec, text=svc, bg=CARD, fg=FG, font=label_font,
+                     anchor="w", width=20).grid(row=r, column=0, sticky="w", pady=2)
+            tk.Button(svc_sec, text="▶ Start", bg="#166534", fg="#fff", font=label_font,
+                      relief="flat", padx=6, pady=2,
+                      command=lambda s=svc: self._start_service(s)).grid(
+                row=r, column=1, padx=(8, 4), pady=2)
+            tk.Button(svc_sec, text="■ Stop", bg="#7f1d1d", fg="#fff", font=label_font,
+                      relief="flat", padx=6, pady=2,
+                      command=lambda s=svc: self._stop_service(s)).grid(
+                row=r, column=2, padx=(0, 4), pady=2)
+        svc_sec.columnconfigure(0, weight=1)
 
-        # Buttons
-        btn_frame = tk.Frame(parent, bg=BG)
-        btn_frame.pack(fill="x", padx=8, pady=6)
+        # Bottom buttons
+        btn_frame = tk.Frame(scroll_frame, bg=BG)
+        btn_frame.pack(fill="x", padx=8, pady=8)
 
-        self._start_btn = tk.Button(btn_frame, text="▶ Start Stack", bg=ACC, fg="#fff",
-                                    font=btn_font, relief="flat", padx=12, pady=6, command=self._start)
+        tk.Button(btn_frame, text="Save Config", bg="#475569", fg=FG, font=btn_font,
+                  relief="flat", padx=10, pady=6, command=self._save).pack(side="left", padx=(0, 6))
+
+        self._start_btn = tk.Button(btn_frame, text="▶ Start All", bg=ACC, fg="#fff",
+                                    font=btn_font, relief="flat", padx=12, pady=6,
+                                    command=self._start)
         self._start_btn.pack(side="left", padx=(0, 6))
 
-        self._stop_btn = tk.Button(btn_frame, text="■ Stop", bg=RED, fg="#fff",
+        self._stop_btn = tk.Button(btn_frame, text="■ Stop All", bg=RED, fg="#fff",
                                    font=btn_font, relief="flat", padx=12, pady=6,
                                    command=self._stop, state="disabled")
         self._stop_btn.pack(side="left", padx=(0, 6))
@@ -234,161 +281,133 @@ class MainLauncher(tk.Tk):
         tk.Button(btn_frame, text="🌐 Open UI", bg="#475569", fg=FG, font=btn_font,
                   relief="flat", padx=10, pady=6, command=self._open_ui).pack(side="left", padx=(0, 6))
 
-        tk.Button(btn_frame, text="Save Config", bg="#475569", fg=FG, font=btn_font,
-                  relief="flat", padx=10, pady=6, command=self._save).pack(side="left")
-
         self._status_lbl = tk.Label(btn_frame, text="● Stopped", bg=BG, fg=RED, font=label_font)
         self._status_lbl.pack(side="left", padx=12)
 
-        # Log
-        tk.Label(parent, text="Output:", bg=BG, fg=DIM, font=label_font, anchor="w").pack(fill="x", padx=8)
-        self._log = scrolledtext.ScrolledText(parent, bg="#020617", fg="#86efac",
-                                              font=("monospace", 9), height=10,
-                                              state="disabled", relief="flat")
-        self._log.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+    # ── Status tab ─────────────────────────────────────────────────────────
 
-    def _toggle_advanced(self):
-        if self._adv_visible.get():
-            self._adv_frame.pack_forget()
-            self._adv_visible.set(False)
-            self._adv_btn.configure(text="▶ Advanced")
-        else:
-            self._adv_frame.pack(fill="x", padx=8, pady=2)
-            self._adv_visible.set(True)
-            self._adv_btn.configure(text="▼ Advanced")
+    def _build_status_tab(self, parent):
+        label_font = tkfont.Font(family="monospace", size=10)
+        sec_font = tkfont.Font(family="monospace", size=10, weight="bold")
 
-    # ── Certs tab ──────────────────────────────────────────────────────────
+        header = tk.Frame(parent, bg=CARD, padx=14, pady=10)
+        header.pack(fill="x", padx=16, pady=(12, 4))
+        tk.Label(header, text="Service Status", bg=CARD, fg=ACC, font=sec_font).pack(anchor="w")
+        tk.Label(header, text="Auto-refreshes every 5 seconds", bg=CARD, fg=DIM,
+                 font=label_font).pack(anchor="w")
 
-    def _build_certs_tab(self, parent, label_font, btn_font):
-        form = tk.Frame(parent, bg="#1e293b", padx=14, pady=10)
-        form.pack(fill="x", padx=8, pady=4)
+        self._status_rows = {}
+        svc_frame = tk.Frame(parent, bg=CARD, padx=14, pady=10)
+        svc_frame.pack(fill="x", padx=16, pady=4)
 
-        tk.Label(form, text="Server IP:", bg="#1e293b", fg=DIM, font=label_font, width=14, anchor="w").grid(row=0, column=0, sticky="w", pady=3)
-        self._cert_server_ip = tk.StringVar(value="")
-        tk.Entry(form, textvariable=self._cert_server_ip, bg=BG, fg=FG, insertbackground=FG,
-                 font=label_font, relief="flat", width=24).grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=3)
+        for i, svc in enumerate(SERVICES):
+            dot = tk.Label(svc_frame, text="●", bg=CARD, fg=DIM,
+                           font=tkfont.Font(family="monospace", size=14))
+            dot.grid(row=i, column=0, padx=(0, 8), pady=4, sticky="w")
+            name_lbl = tk.Label(svc_frame, text=svc, bg=CARD, fg=FG, font=label_font,
+                                width=20, anchor="w")
+            name_lbl.grid(row=i, column=1, sticky="w", pady=4)
+            state_lbl = tk.Label(svc_frame, text="unknown", bg=CARD, fg=DIM,
+                                 font=label_font, anchor="w")
+            state_lbl.grid(row=i, column=2, sticky="w", padx=(8, 0), pady=4)
+            self._status_rows[svc] = (dot, state_lbl)
 
-        tk.Label(form, text="Device IDs:", bg="#1e293b", fg=DIM, font=label_font, width=14, anchor="w").grid(row=1, column=0, sticky="w", pady=3)
-        self._cert_device_ids = tk.StringVar(value="edge-01")
-        tk.Entry(form, textvariable=self._cert_device_ids, bg=BG, fg=FG, insertbackground=FG,
-                 font=label_font, relief="flat", width=24).grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=3)
-        form.columnconfigure(1, weight=1)
+        svc_frame.columnconfigure(2, weight=1)
 
-        tk.Button(parent, text="Generate Certs", bg=ACC, fg="#fff", font=btn_font,
-                  relief="flat", padx=12, pady=6, command=self._generate_certs).pack(anchor="w", padx=8, pady=4)
+    # ── Logs tab ───────────────────────────────────────────────────────────
 
-        # Cert status table
-        self._cert_table_frame = tk.Frame(parent, bg="#1e293b")
-        self._cert_table_frame.pack(fill="x", padx=8, pady=4)
-        self._refresh_cert_table()
+    def _build_logs_tab(self, parent):
+        label_font = tkfont.Font(family="monospace", size=10)
+        btn_font = tkfont.Font(family="monospace", size=10, weight="bold")
 
-        # Cert log
-        tk.Label(parent, text="Output:", bg=BG, fg=DIM, font=label_font, anchor="w").pack(fill="x", padx=8)
-        self._cert_log = scrolledtext.ScrolledText(parent, bg="#020617", fg="#86efac",
-                                                   font=("monospace", 9), height=8,
-                                                   state="disabled", relief="flat")
-        self._cert_log.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        ctrl = tk.Frame(parent, bg=BG)
+        ctrl.pack(fill="x", padx=16, pady=(8, 4))
+        tk.Label(ctrl, text="docker compose logs", bg=BG, fg=DIM, font=label_font).pack(side="left")
+        tk.Button(ctrl, text="Clear", bg="#475569", fg=FG, font=btn_font,
+                  relief="flat", padx=8, pady=3, command=self._clear_logs).pack(side="right")
 
-    def _refresh_cert_table(self):
-        for w in self._cert_table_frame.winfo_children():
-            w.destroy()
-        label_font = tkfont.Font(family="monospace", size=9)
-        certs = read_cert_info()
-        if not certs:
-            tk.Label(self._cert_table_frame, text="No certificates found in secrets/",
-                     bg="#1e293b", fg=DIM, font=label_font).pack(padx=8, pady=4)
+        self._log = tk.Text(parent, bg="#020617", fg="#86efac",
+                            font=("monospace", 9), state="disabled",
+                            relief="flat", wrap="none")
+        vsb = ttk.Scrollbar(parent, orient="vertical", command=self._log.yview)
+        hsb = ttk.Scrollbar(parent, orient="horizontal", command=self._log.xview)
+        self._log.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
+        hsb.pack(side="bottom", fill="x", padx=16)
+        vsb.pack(side="right", fill="y", pady=(0, 0))
+        self._log.pack(fill="both", expand=True, padx=(16, 0), pady=(0, 8))
+
+    def _on_tab_changed(self, event):
+        nb = event.widget
+        tab = nb.tab(nb.select(), "text").strip()
+        if tab == "Logs":
+            self._start_log_tail()
+
+    def _start_log_tail(self):
+        if self._log_thread and self._log_thread.is_alive():
             return
-        headers = ["File", "CN", "Expiry", "Status", "Action"]
-        for c, h in enumerate(headers):
-            tk.Label(self._cert_table_frame, text=h, bg="#1e293b", fg=DIM,
-                     font=label_font, width=14, anchor="w").grid(row=0, column=c, padx=4, pady=2)
-        for r, (fname, cn, expiry, valid) in enumerate(certs, start=1):
-            tk.Label(self._cert_table_frame, text=fname, bg="#1e293b", fg="#f1f5f9",
-                     font=label_font, anchor="w").grid(row=r, column=0, padx=4, pady=1, sticky="w")
-            tk.Label(self._cert_table_frame, text=cn, bg="#1e293b", fg="#f1f5f9",
-                     font=label_font, anchor="w").grid(row=r, column=1, padx=4, pady=1, sticky="w")
-            tk.Label(self._cert_table_frame, text=expiry, bg="#1e293b", fg="#f1f5f9",
-                     font=label_font, anchor="w").grid(row=r, column=2, padx=4, pady=1, sticky="w")
-            status_color = "#22c55e" if valid else "#ef4444"
-            status_text = "✓ Valid" if valid else "✗ Expired"
-            tk.Label(self._cert_table_frame, text=status_text, bg="#1e293b", fg=status_color,
-                     font=label_font).grid(row=r, column=3, padx=4, pady=1)
-            tk.Button(self._cert_table_frame, text="Copy →", bg="#334155", fg="#f1f5f9",
-                      font=label_font, relief="flat", padx=4,
-                      command=lambda f=fname: self._copy_cert_to_device(f)).grid(row=r, column=4, padx=4, pady=1)
+
+        def _tail():
+            try:
+                proc = subprocess.Popen(
+                    ["docker", "compose", "logs", "-f", "--tail=100"],
+                    cwd=DOCKER_DIR,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1,
+                )
+                self._log_proc = proc
+                for line in proc.stdout:
+                    self.after(0, lambda l=line: self._log_append(l))
+                proc.wait()
+            except Exception as e:
+                self.after(0, lambda: self._log_append(f"[log tail error: {e}]\n"))
+
+        self._log_thread = threading.Thread(target=_tail, daemon=True)
+        self._log_thread.start()
+
+    def _clear_logs(self):
+        self._log.configure(state="normal")
+        self._log.delete("1.0", tk.END)
+        self._log.configure(state="disabled")
+
+    def _log_append(self, text):
+        self._log.configure(state="normal")
+        self._log.insert(tk.END, text)
+        self._log.see(tk.END)
+        self._log.configure(state="disabled")
+
+    # ── Cert generation ────────────────────────────────────────────────────
 
     def _generate_certs(self):
         server_ip = self._cert_server_ip.get().strip()
         device_ids = self._cert_device_ids.get().strip()
         if not server_ip or not device_ids:
-            self._cert_log_line("⚠ Please enter Server IP and Device IDs\n")
+            self._log_append("⚠ Please enter Server IP and Device IDs\n")
             return
 
         def _run():
             env = {**os.environ, "SERVER_IP": server_ip, "DEVICE_IDS": device_ids, "FORCE": "1"}
-            self._cert_log_line(f"$ FORCE=1 SERVER_IP={server_ip} DEVICE_IDS={device_ids} bash certs/gen_certs.sh\n")
+            self._log_append(f"$ FORCE=1 SERVER_IP={server_ip} DEVICE_IDS={device_ids} bash certs/gen_certs.sh\n")
             try:
                 proc = subprocess.Popen(
                     ["bash", CERTS_SCRIPT], cwd=os.path.dirname(__file__),
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env
                 )
                 for line in proc.stdout:
-                    self._cert_log_line(line)
+                    self.after(0, lambda l=line: self._log_append(l))
                 proc.wait()
-                self._cert_log_line("✓ Done\n")
-                self.after(0, self._refresh_cert_table)
+                self.after(0, lambda: self._log_append("✓ Certs generated\n"))
             except Exception as e:
-                self._cert_log_line(f"ERROR: {e}\n")
+                self.after(0, lambda: self._log_append(f"ERROR: {e}\n"))
 
         threading.Thread(target=_run, daemon=True).start()
-
-    def _copy_cert_to_device(self, fname):
-        win = tk.Toplevel(self)
-        win.title("Copy to Device")
-        win.configure(bg=BG)
-        label_font = tkfont.Font(family="monospace", size=10)
-        tk.Label(win, text="Edge Device IP:", bg=BG, fg=DIM, font=label_font).pack(padx=16, pady=(12, 4))
-        ip_var = tk.StringVar()
-        tk.Entry(win, textvariable=ip_var, bg="#1e293b", fg="#f1f5f9", font=label_font,
-                 relief="flat", width=20).pack(padx=16, pady=4)
-
-        def _do_copy():
-            ip = ip_var.get().strip()
-            if not ip:
-                return
-            win.destroy()
-            # Determine which files to copy based on cert name
-            base = fname.replace(".crt", "")
-            files = [
-                os.path.join(SECRETS_DIR, "ca.crt"),
-                os.path.join(SECRETS_DIR, f"{base}.crt"),
-                os.path.join(SECRETS_DIR, f"{base}.key"),
-            ]
-            for f in files:
-                if os.path.exists(f):
-                    cmd = ["scp", f, f"user@{ip}:~/Projects/UAV/UAV/secrets/"]
-                    self._log_line(f"$ {' '.join(cmd)}\n")
-                    run_cmd(cmd, os.path.dirname(__file__), self._cert_log)
-            self._cert_log_line("✓ Copy complete\n")
-
-        tk.Button(win, text="Copy", bg=ACC, fg="#fff", font=label_font,
-                  relief="flat", padx=12, pady=6, command=_do_copy).pack(padx=16, pady=8)
-
-    def _cert_log_line(self, text):
-        self.after(0, lambda: self._cert_log_append(text))
-
-    def _cert_log_append(self, text):
-        self._cert_log.configure(state="normal")
-        self._cert_log.insert(tk.END, text)
-        self._cert_log.see(tk.END)
-        self._cert_log.configure(state="disabled")
 
     # ── Stack controls ─────────────────────────────────────────────────────
 
     def _save(self):
         values = {k: v.get() for k, v in self._vars.items()}
         save_env(values)
-        self._log_line("✓ Config saved\n")
+        self._log_append("✓ Config saved\n")
 
     def _open_ui(self):
         port = self._vars.get("CONTROL_CENTER_PORT", tk.StringVar(value="8080")).get()
@@ -401,17 +420,28 @@ class MainLauncher(tk.Tk):
         self._set_status("● Starting…", AMBER)
 
         def _run():
-            rc = run_cmd(["docker", "compose", "--env-file", ".env", "up", "-d", "--build"],
-                         cwd=DOCKER_DIR, log_widget=self._log)
-            if rc == 0:
-                self._set_status("● Running", GREEN)
-                self._running = True
-                port = self._vars.get("CONTROL_CENTER_PORT", tk.StringVar(value="8080")).get()
-                self._log_line(f"\n✓ Stack started. Open http://localhost:{port}\n")
-            else:
+            try:
+                proc = subprocess.Popen(
+                    ["docker", "compose", "--env-file", ".env", "up", "-d", "--build"],
+                    cwd=DOCKER_DIR,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1,
+                )
+                for line in proc.stdout:
+                    self.after(0, lambda l=line: self._log_append(l))
+                rc = proc.wait()
+                if rc == 0:
+                    self._set_status("● Running", GREEN)
+                    self._running = True
+                    port = self._vars.get("CONTROL_CENTER_PORT", tk.StringVar(value="8080")).get()
+                    self.after(0, lambda: self._log_append(f"\n✓ Stack started. Open http://localhost:{port}\n"))
+                else:
+                    self._set_status("● Error", RED)
+                    self.after(0, lambda: self._start_btn.configure(state="normal"))
+                    self.after(0, lambda: self._stop_btn.configure(state="disabled"))
+            except Exception as e:
+                self.after(0, lambda: self._log_append(f"ERROR: {e}\n"))
                 self._set_status("● Error", RED)
-                self.after(0, lambda: self._start_btn.configure(state="normal"))
-                self.after(0, lambda: self._stop_btn.configure(state="disabled"))
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -420,21 +450,59 @@ class MainLauncher(tk.Tk):
         self._set_status("● Stopping…", AMBER)
 
         def _run():
-            run_cmd(["docker", "compose", "down"], cwd=DOCKER_DIR, log_widget=self._log)
+            try:
+                proc = subprocess.Popen(
+                    ["docker", "compose", "down"],
+                    cwd=DOCKER_DIR,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1,
+                )
+                for line in proc.stdout:
+                    self.after(0, lambda l=line: self._log_append(l))
+                proc.wait()
+            except Exception as e:
+                self.after(0, lambda: self._log_append(f"ERROR: {e}\n"))
             self._set_status("● Stopped", RED)
             self.after(0, lambda: self._start_btn.configure(state="normal"))
             self._running = False
 
         threading.Thread(target=_run, daemon=True).start()
 
-    def _log_line(self, text):
-        self.after(0, lambda: self._log_append(text))
+    def _start_service(self, svc):
+        def _run():
+            self.after(0, lambda: self._log_append(f"$ docker compose up -d {svc}\n"))
+            try:
+                proc = subprocess.Popen(
+                    ["docker", "compose", "up", "-d", svc],
+                    cwd=DOCKER_DIR,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1,
+                )
+                for line in proc.stdout:
+                    self.after(0, lambda l=line: self._log_append(l))
+                proc.wait()
+            except Exception as e:
+                self.after(0, lambda: self._log_append(f"ERROR: {e}\n"))
 
-    def _log_append(self, text):
-        self._log.configure(state="normal")
-        self._log.insert(tk.END, text)
-        self._log.see(tk.END)
-        self._log.configure(state="disabled")
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _stop_service(self, svc):
+        def _run():
+            self.after(0, lambda: self._log_append(f"$ docker compose stop {svc}\n"))
+            try:
+                proc = subprocess.Popen(
+                    ["docker", "compose", "stop", svc],
+                    cwd=DOCKER_DIR,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1,
+                )
+                for line in proc.stdout:
+                    self.after(0, lambda l=line: self._log_append(l))
+                proc.wait()
+            except Exception as e:
+                self.after(0, lambda: self._log_append(f"ERROR: {e}\n"))
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _set_status(self, text, color):
         self.after(0, lambda: self._status_lbl.configure(text=text, fg=color))
@@ -448,18 +516,25 @@ class MainLauncher(tk.Tk):
     def _poll_health(self):
         def _run():
             status = get_service_status()
-            self.after(0, lambda: self._update_health_dots(status))
+            self.after(0, lambda: self._update_status_tab(status))
+
         threading.Thread(target=_run, daemon=True).start()
 
-    def _update_health_dots(self, status):
-        for svc, dot in self._health_labels.items():
+    def _update_status_tab(self, status):
+        for svc, (dot, state_lbl) in self._status_rows.items():
             state = status.get(svc, "")
-            if "running" in state.lower():
+            if "running" in state:
                 dot.configure(fg=GREEN)
-            elif state:
+                state_lbl.configure(text="running", fg=GREEN)
+            elif state in ("exited", "stopped", "dead"):
                 dot.configure(fg=RED)
+                state_lbl.configure(text=state, fg=RED)
+            elif state:
+                dot.configure(fg=AMBER)
+                state_lbl.configure(text=state, fg=AMBER)
             else:
                 dot.configure(fg=DIM)
+                state_lbl.configure(text="not found", fg=DIM)
 
 
 if __name__ == "__main__":

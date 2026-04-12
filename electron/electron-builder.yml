@@ -1,0 +1,13 @@
+appId: com.antiuav.controlcenter
+productName: Anti-UAV Control Center
+directories:
+  output: dist
+linux:
+  target:
+    - AppImage
+  category: Utility
+  icon: icons/icon.png
+files:
+  - main.js
+  - preload.js
+  - package.json

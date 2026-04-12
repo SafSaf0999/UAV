@@ -71,27 +71,42 @@ class MQTTClient:
 
     def _configure_client(self) -> None:
         """Configure TLS / auth and LWT on the paho client."""
-        # --- TLS ---
+        # --- TLS (CA cert for server verification; always applied when present) ---
         ca_cert = self._config.get("mqtt.tls.ca_cert")
         client_cert = self._config.get("mqtt.tls.client_cert")
         client_key = self._config.get("mqtt.tls.client_key")
 
-        if ca_cert and client_cert and client_key:
-            self._client.tls_set(
-                ca_certs=ca_cert,
-                certfile=client_cert,
-                keyfile=client_key,
-            )
-            logger.info("MQTT TLS configured with client certificate")
-        else:
-            # Fallback: username/password
-            username = self._config.get("mqtt.username")
-            password = self._config.get("mqtt.password")
-            if username:
-                self._client.username_pw_set(username, password)
-                logger.info("MQTT configured with username/password authentication")
+        # --- Primary auth: username/password ---
+        username = self._config.get("mqtt.username")
+        password = self._config.get("mqtt.password")
+
+        if username:
+            # Set up TLS with CA cert only (server verification); no client cert needed
+            if ca_cert:
+                self._client.tls_set(ca_certs=ca_cert)
+            self._client.username_pw_set(username, password)
+            logger.info("MQTT configured with username/password authentication")
+        elif client_cert and client_key:
+            # Legacy/optional fallback: mutual TLS with client certificate
+            if ca_cert:
+                self._client.tls_set(
+                    ca_certs=ca_cert,
+                    certfile=client_cert,
+                    keyfile=client_key,
+                )
             else:
-                logger.warning("MQTT: no TLS certs and no username configured — connecting unauthenticated")
+                self._client.tls_set(
+                    certfile=client_cert,
+                    keyfile=client_key,
+                )
+            logger.info("MQTT TLS configured with client certificate (legacy auth)")
+        else:
+            # No credentials — unauthenticated; still apply CA cert for TLS if available
+            if ca_cert:
+                self._client.tls_set(ca_certs=ca_cert)
+            logger.warning(
+                "MQTT: no username configured — connecting unauthenticated (not recommended)"
+            )
 
         # --- LWT ---
         lwt_topic = f"uav/status/{self._device_id}"
@@ -283,4 +298,8 @@ class MQTTClient:
     def publish_log(self, payload_bytes: bytes) -> None:
         """Publish log entry (QoS 0, not retained)."""
         topic = f"uav/log/{self._device_id}"
+        self._client.publish(topic, payload=payload_bytes, qos=0, retain=False)
+
+    def publish_raw(self, topic: str, payload_bytes: bytes) -> None:
+        """Publish raw bytes to an arbitrary topic (QoS 0, not retained)."""
         self._client.publish(topic, payload=payload_bytes, qos=0, retain=False)

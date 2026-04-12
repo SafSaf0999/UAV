@@ -24,6 +24,7 @@ from .auth import (
     audit_middleware,
     init_db,
     jwt_auth_middleware,
+    api_router,
     router as auth_router,
 )
 
@@ -53,6 +54,9 @@ app.middleware("http")(audit_middleware)
 
 # Auth routes (exempt from JWT middleware)
 app.include_router(auth_router)
+
+# API routes (JWT required — enforced by jwt_auth_middleware)
+app.include_router(api_router)
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +105,47 @@ async def proxy_logs(device_id: str, request: Request):
     params = dict(request.query_params)
     async with httpx.AsyncClient() as client:
         resp = await client.get(f"{AGGREGATION_URL}/logs/{device_id}", params=params)
+    return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+
+@app.get("/api/devices/{device_id}/detections/export")
+async def proxy_detections_export(device_id: str, request: Request):
+    """Proxy detection export to aggregation service. JWT required (enforced by middleware)."""
+    params = dict(request.query_params)
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{AGGREGATION_URL}/devices/{device_id}/detections/export",
+            params=params,
+        )
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=resp.headers.get("content-type", "text/csv"),
+        headers={"Content-Disposition": resp.headers.get("content-disposition", "")},
+    )
+
+
+@app.get("/api/devices/{device_id}/thresholds")
+async def proxy_get_thresholds(device_id: str, request: Request):
+    """Proxy threshold GET to aggregation service. JWT required."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{AGGREGATION_URL}/devices/{device_id}/thresholds")
+    return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+
+@app.put("/api/devices/{device_id}/thresholds")
+async def proxy_put_thresholds(device_id: str, request: Request):
+    """Proxy threshold PUT to aggregation service. Admin only."""
+    from .auth import _require_admin, _get_current_user
+    # Enforce admin role
+    user = getattr(request.state, "user", None)
+    if not user or user.get("role") != "admin":
+        return JSONResponse(status_code=403, content={"detail": "Admin access required"})
+    body = await request.json()
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            f"{AGGREGATION_URL}/devices/{device_id}/thresholds", json=body
+        )
     return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
 

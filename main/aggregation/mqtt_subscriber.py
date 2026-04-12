@@ -29,6 +29,9 @@ TOPICS = [
     "uav/sensor/#",
     "uav/health/#",
     "uav/log/#",
+    "uav/ipwebcam/capabilities/#",
+    "uav/ipwebcam/sensors/#",
+    "uav/snapshot/#",
 ]
 
 RADAR_TOPIC = "uav/radar/#"
@@ -132,6 +135,12 @@ class MQTTSubscriber:
                 await self._dispatch(str(message.topic), message.payload)
 
     async def _dispatch(self, topic: str, payload_bytes: bytes) -> None:
+        # Snapshot payloads are raw base64 bytes, not JSON
+        if topic.startswith("uav/snapshot/"):
+            device_id = topic.split("/")[-1]
+            await self._registry.update_snapshot(device_id, payload_bytes.decode("ascii", errors="replace"))
+            return
+
         try:
             data = json.loads(payload_bytes.decode("utf-8"))
         except Exception as exc:
@@ -159,6 +168,14 @@ class MQTTSubscriber:
 
         elif topic.startswith("uav/log/"):
             await self._registry.update_log(data)
+
+        elif topic.startswith("uav/ipwebcam/capabilities/"):
+            device_id = topic.split("/")[-1]
+            await self._registry.update_ipwebcam_capabilities(device_id, data)
+
+        elif topic.startswith("uav/ipwebcam/sensors/"):
+            device_id = topic.split("/")[-1]
+            await self._registry.update_ipwebcam_sensors(device_id, data)
 
         elif topic.startswith("uav/radar/") and self._radar_normalizer:
             normalized = self._radar_normalizer(data)

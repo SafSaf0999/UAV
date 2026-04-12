@@ -59,7 +59,7 @@ export interface PtzStatus {
 
 export interface DeviceState {
   device_id: string;
-  status: "online" | "offline" | "unknown";
+  status: "online" | "offline" | "unknown" | "health_timeout";
   active_model: string | null;
   lat: number | null;
   lon: number | null;
@@ -71,6 +71,8 @@ export interface DeviceState {
   last_sensor: SensorData | null;
   health: HealthPayload | null;
   cert_info: CertInfo | null;
+  ipwebcam_capabilities?: Record<string, any>;
+  ipwebcam_sensors?: Record<string, any>;
 }
 
 export interface PtzCommand {

@@ -1,6 +1,6 @@
 import React from "react";
 
-type BadgeVariant = "online" | "offline" | "error" | "warning" | "unknown";
+type BadgeVariant = "online" | "offline" | "error" | "warning" | "unknown" | "health_timeout";
 
 interface BadgeProps {
   variant: BadgeVariant;
@@ -13,6 +13,7 @@ const VARIANT_COLORS: Record<BadgeVariant, string> = {
   error: "var(--uav-color-alert)",
   warning: "var(--uav-color-warning)",
   unknown: "var(--ha-color-neutral-50)",
+  health_timeout: "#f59e0b",
 };
 
 export function Badge({ variant, label }: BadgeProps) {

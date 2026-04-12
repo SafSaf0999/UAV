@@ -113,4 +113,12 @@ def load_config(path: str | None = None) -> Config:
         sys.exit(1)
 
     _validate(data)
+
+    # Warn when mqtt.username is absent — unauthenticated connections are not recommended
+    found_username, _ = _get_nested(data, "mqtt.username")
+    if not found_username:
+        logger.warning(
+            "MQTT: no username configured — connecting unauthenticated (not recommended)"
+        )
+
     return Config(raw=data)

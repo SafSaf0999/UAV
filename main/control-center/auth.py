@@ -14,6 +14,7 @@ Bootstrap: on first startup, creates an admin account from
 import logging
 import os
 import secrets
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -58,6 +59,9 @@ def _verify_password(password: str, hashed: str) -> bool:
 # In-memory JTI blocklist (cleared on restart — acceptable for short TTLs)
 _jti_blocklist: set[str] = set()
 
+# Throttle dict for last_seen updates: jti -> monotonic timestamp of last DB write
+_session_last_seen: dict[str, float] = {}
+
 # ---------------------------------------------------------------------------
 # Database helpers
 # ---------------------------------------------------------------------------
@@ -101,6 +105,24 @@ async def init_db() -> None:
                 device_id TEXT,
                 payload TEXT,
                 timestamp TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS sessions (
+                jti TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                login_time TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                user_agent TEXT,
+                expires_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                events TEXT NOT NULL,
+                secret TEXT NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1
             );
         """)
         await db.commit()
@@ -218,6 +240,22 @@ async def login(request: Request):
         await db.commit()
 
     token = _create_jwt(row["username"], row["display_name"], row["role"], remember)
+
+    # Insert session row
+    claims = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    jti = claims["jti"]
+    exp_iso = datetime.fromtimestamp(claims["exp"], tz=timezone.utc).isoformat()
+    now_iso = _now_iso()
+    user_agent = request.headers.get("User-Agent", "")
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO sessions "
+            "(jti, username, display_name, login_time, last_seen, user_agent, expires_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (jti, row["username"], row["display_name"], now_iso, now_iso, user_agent, exp_iso),
+        )
+        await db.commit()
+
     return {"access_token": token, "token_type": "bearer"}
 
 
@@ -274,7 +312,12 @@ async def register(request: Request):
 
 @router.post("/logout")
 async def logout(user: dict = Depends(_get_current_user)):
-    _jti_blocklist.add(user["jti"])
+    jti = user["jti"]
+    _jti_blocklist.add(jti)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM sessions WHERE jti = ?", (jti,))
+        await db.commit()
+    _session_last_seen.pop(jti, None)
     return {"status": "logged out"}
 
 
@@ -367,6 +410,242 @@ async def get_audit(
 
 
 # ---------------------------------------------------------------------------
+# Token status helper
+# ---------------------------------------------------------------------------
+
+def _compute_token_status(row: dict) -> str:
+    """Compute status for an invite token row."""
+    if row["used_by"] is not None:
+        return "used"
+    if row["expires_at"] < _now_iso():
+        return "expired"
+    return "pending"
+
+
+# ---------------------------------------------------------------------------
+# API router — mounted at /api in app.py
+# ---------------------------------------------------------------------------
+
+api_router = APIRouter(prefix="/api", tags=["api"])
+
+
+@api_router.get("/tokens")
+async def list_tokens(admin: dict = Depends(_require_admin)):
+    """Return all invite tokens with computed status. Admin only."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT token, role, created_by, created_at, expires_at, used_by, used_at "
+            "FROM invite_tokens ORDER BY created_at DESC"
+        )
+        rows = await cursor.fetchall()
+    result = []
+    for row in rows:
+        entry = dict(row)
+        entry["status"] = _compute_token_status(entry)
+        result.append(entry)
+    return result
+
+
+@api_router.delete("/tokens/{token}")
+async def delete_token(token: str, admin: dict = Depends(_require_admin)):
+    """Delete (revoke) a pending invite token. Rejects used or expired tokens."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT token, used_by, expires_at FROM invite_tokens WHERE token = ?", (token,)
+        )
+        row = await cursor.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Token not found")
+
+    status = _compute_token_status(dict(row))
+    if status in ("used", "expired"):
+        raise HTTPException(status_code=400, detail="Cannot revoke a used or expired token")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM invite_tokens WHERE token = ?", (token,))
+        await db.commit()
+
+    return {"status": "revoked", "token": token}
+
+
+# ---------------------------------------------------------------------------
+# Session management endpoints
+# ---------------------------------------------------------------------------
+
+@api_router.get("/sessions")
+async def list_sessions(admin: dict = Depends(_require_admin)):
+    """Return all active sessions ordered by login_time DESC. Admin only."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT jti, username, display_name, login_time, last_seen, user_agent, expires_at "
+            "FROM sessions ORDER BY login_time DESC"
+        )
+        rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
+
+
+@api_router.delete("/sessions/{jti}")
+async def revoke_session(jti: str, admin: dict = Depends(_require_admin)):
+    """Revoke a session: add jti to blocklist and delete from sessions table. Admin only."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT jti FROM sessions WHERE jti = ?", (jti,))
+        row = await cursor.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    _jti_blocklist.add(jti)
+    _session_last_seen.pop(jti, None)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM sessions WHERE jti = ?", (jti,))
+        await db.commit()
+
+    return {"status": "revoked", "jti": jti}
+
+
+# ---------------------------------------------------------------------------
+# Webhook management endpoints (Task 9.4)
+# ---------------------------------------------------------------------------
+
+@api_router.get("/webhooks")
+async def list_webhooks(admin: dict = Depends(_require_admin)):
+    """Return all webhooks. Admin only."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id, url, events, secret, enabled FROM webhooks ORDER BY id"
+        )
+        rows = await cursor.fetchall()
+    return [dict(r) for r in rows]
+
+
+@api_router.post("/webhooks")
+async def create_webhook(request: Request, admin: dict = Depends(_require_admin)):
+    """Create a new webhook. Admin only. Body: {url, events, secret}."""
+    body = await request.json()
+    url = body.get("url", "").strip()
+    events = body.get("events", "")
+    secret = body.get("secret", "")
+    enabled = int(body.get("enabled", 1))
+
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
+
+    # Normalize events to comma-separated string
+    if isinstance(events, list):
+        events = ",".join(events)
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT INTO webhooks (url, events, secret, enabled) VALUES (?, ?, ?, ?)",
+            (url, events, secret, enabled),
+        )
+        await db.commit()
+        webhook_id = cursor.lastrowid
+
+    return {"id": webhook_id, "url": url, "events": events, "secret": secret, "enabled": enabled}
+
+
+@api_router.put("/webhooks/{webhook_id}")
+async def update_webhook(
+    webhook_id: int, request: Request, admin: dict = Depends(_require_admin)
+):
+    """Update a webhook. Admin only."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT id FROM webhooks WHERE id = ?", (webhook_id,))
+        row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    body = await request.json()
+    fields = []
+    params = []
+    for key in ("url", "events", "secret", "enabled"):
+        if key in body:
+            val = body[key]
+            if key == "events" and isinstance(val, list):
+                val = ",".join(val)
+            if key == "enabled":
+                val = int(val)
+            fields.append(f"{key} = ?")
+            params.append(val)
+
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    params.append(webhook_id)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            f"UPDATE webhooks SET {', '.join(fields)} WHERE id = ?", params
+        )
+        await db.commit()
+
+    return {"status": "updated", "id": webhook_id}
+
+
+@api_router.delete("/webhooks/{webhook_id}")
+async def delete_webhook(webhook_id: int, admin: dict = Depends(_require_admin)):
+    """Delete a webhook. Admin only."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT id FROM webhooks WHERE id = ?", (webhook_id,))
+        row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))
+        await db.commit()
+
+    return {"status": "deleted", "id": webhook_id}
+
+
+@api_router.post("/webhooks/{webhook_id}/test")
+async def test_webhook(webhook_id: int, admin: dict = Depends(_require_admin)):
+    """POST a test payload to the webhook URL and return the HTTP status code. Admin only."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id, url, events, secret, enabled FROM webhooks WHERE id = ?", (webhook_id,)
+        )
+        row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    import hashlib
+    import hmac as _hmac
+    import json as _json
+
+    url = row["url"]
+    secret = row["secret"] or ""
+    test_payload = {
+        "event": "test",
+        "device_id": "test-device",
+        "timestamp": _now_iso(),
+        "data": {"message": "This is a test webhook delivery"},
+    }
+    body_bytes = _json.dumps(test_payload, separators=(",", ":")).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if secret:
+        mac = _hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256)
+        headers["X-UAV-Signature"] = "hmac-sha256=" + mac.hexdigest()
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(url, content=body_bytes, headers=headers)
+        return {"status_code": resp.status_code, "url": url}
+    except Exception as exc:
+        return {"status_code": None, "url": url, "error": str(exc)}
+
+
+# ---------------------------------------------------------------------------
 # Middleware helpers (used by app.py)
 # ---------------------------------------------------------------------------
 
@@ -431,6 +710,23 @@ async def jwt_auth_middleware(request: Request, call_next):
             return JSONResponse(status_code=401, content={"detail": "Account deactivated"})
         # Attach user to request state for audit middleware
         request.state.user = payload
+
+        # Update last_seen with 60-second throttle
+        jti = payload.get("jti")
+        if jti:
+            now_mono = time.monotonic()
+            last_update = _session_last_seen.get(jti, 0.0)
+            if now_mono - last_update > 60:
+                _session_last_seen[jti] = now_mono
+                try:
+                    async with aiosqlite.connect(DB_PATH) as db2:
+                        await db2.execute(
+                            "UPDATE sessions SET last_seen = ? WHERE jti = ?",
+                            (_now_iso(), jti),
+                        )
+                        await db2.commit()
+                except Exception as exc:
+                    logger.warning("last_seen update failed: %s", exc)
     except HTTPException as exc:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
