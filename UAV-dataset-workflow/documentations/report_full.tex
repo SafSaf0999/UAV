@@ -93,7 +93,7 @@ alarm rate of just 0.3\%. Fine-tuning reduces low-confidence false positives
 by 55\% compared to the base model, with negligible regression on original
 validation sets.
 
-The control center (v2) provides JWT-based authentication with invite-token
+The control center provides JWT-based authentication with invite-token
 registration, a real-time dashboard with per-class detection color coding,
 an interactive map with slide-in device panels, WebRTC live video streaming,
 and edge device health monitoring.
@@ -167,8 +167,6 @@ with a centralised web-based control center.
   \item The DUT Anti-UAV evaluation uses proxy metrics (detection rate,
         tracking gaps) since per-frame annotations are not available in
         the tracking split.
-  \item The WOSDETC challenge dataset requires a data usage agreement
-        and was not used in this work.
 \end{itemize}
 
 The thermal infrared gap deserves specific mention. Delleji et al.~\cite{delleji2025thermal}
@@ -1260,7 +1258,7 @@ genuine detections (0.790). At threshold 0.40:
         backgrounds.
 \end{itemize}
 
-\section{Control Center v2}
+\section{Control Center}
 
 The redesigned control center introduces several operational improvements
 that complement the BirdDrone-2C-FT model:
@@ -1307,7 +1305,7 @@ that complement the BirdDrone-2C-FT model:
   \item \textbf{Negligible regression on original test sets}: $-$0.005 on
         Anti-UAV test, $-$0.001 on Birds.v1i, confirming no catastrophic
         forgetting.
-  \item \textbf{The distributed control center v2} provides a complete
+  \item \textbf{The distributed control center} provides a complete
         operational platform with authentication, real-time monitoring,
         per-class detection visualisation, and structured logging.
 \end{enumerate}
@@ -1333,7 +1331,6 @@ that complement the BirdDrone-2C-FT model:
 \begin{itemize}
   \item Thermal infrared modality using Anti-UAV410 benchmark sequences.
   \item Multi-UAV tracking with ByteTrack integration.
-  \item Evaluation against WOSDETC challenge dataset.
   \item Deployment on Jetson Nano / Raspberry Pi 4 with TensorRT export.
   \item Night-time detection using low-light augmentation.
   \item Active learning loop: use BirdDrone-2C-FT detections in production
