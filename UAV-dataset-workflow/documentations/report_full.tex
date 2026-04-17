@@ -1063,15 +1063,16 @@ topics used in the system.
 
 \begin{table}[H]
 \centering
+\small
 \caption{MQTT topic reference.}
 \label{tab:mqtt_topics}
-\begin{tabular}{|l|l|p{5cm}|}
+\begin{tabular}{|p{4.2cm}|p{2.0cm}|p{6.3cm}|}
 \hline
 \textbf{Topic} & \textbf{Direction} & \textbf{Description} \\
 \hline
 \texttt{uav/tracking/\{id\}} & Edge $\to$ Main & Detection results per frame: bounding boxes, labels, confidence scores, track IDs. Published at inference frame rate (up to 25 fps). QoS 0. \\
 \hline
-\texttt{uav/status/\{id\}} & Edge $\to$ Main & Online/offline status, active model name, GPS coordinates. Published as a retained message so the control center receives the last known status immediately on connection. QoS 1. \\
+\texttt{uav/status/\{id\}} & Edge $\to$ Main & Online/offline status, active model name, GPS coordinates. Published as a retained message. QoS 1. \\
 \hline
 \texttt{uav/health/\{id\}} & Edge $\to$ Main & CPU usage, memory usage, inference FPS, uptime. Published every 30 seconds. QoS 0. \\
 \hline
@@ -1081,13 +1082,13 @@ topics used in the system.
 \hline
 \texttt{uav/ptz/status/\{id\}} & Edge $\to$ Main & PTZ camera position after each command. QoS 0. \\
 \hline
-\texttt{uav/ipwebcam/capabilities/\{id\}} & Edge $\to$ Main & Available IP Webcam settings and their valid ranges. Published once on startup. QoS 0. \\
+\texttt{uav/ipwebcam/} \texttt{capabilities/\{id\}} & Edge $\to$ Main & Available IP Webcam settings and their valid ranges. Published once on startup. QoS 0. \\
 \hline
-\texttt{uav/ipwebcam/sensors/\{id\}} & Edge $\to$ Main & Phone sensor data: battery level, temperature, light, motion, pressure. QoS 0. \\
+\texttt{uav/ipwebcam/} \texttt{sensors/\{id\}} & Edge $\to$ Main & Phone sensor data: battery level, temperature, light, motion, pressure. QoS 0. \\
 \hline
 \texttt{uav/snapshot/\{id\}} & Edge $\to$ Main & Base64-encoded JPEG snapshot from the camera. Published on demand. QoS 0. \\
 \hline
-\texttt{uav/command/\{id\}} & Main $\to$ Edge & Commands: \texttt{start\_stream}, \texttt{stop\_stream}, \texttt{switch\_model}, \texttt{update\_config}, \texttt{ipwebcam\_control}, \texttt{ipwebcam\_sensors}. QoS 1. \\
+\texttt{uav/command/\{id\}} & Main $\to$ Edge & Commands: \texttt{start\_stream}, \texttt{stop\_stream}, \texttt{switch\_model}, \texttt{update\_config}, \texttt{ipwebcam\_control}. QoS 1. \\
 \hline
 \texttt{uav/ptz/\{id\}} & Main $\to$ Edge & PTZ commands: pan, tilt, zoom, \texttt{pan\_to\_bearing}. QoS 0. \\
 \hline
