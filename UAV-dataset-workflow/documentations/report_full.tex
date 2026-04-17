@@ -44,6 +44,9 @@
 \lhead{\small \leftmark}
 \cfoot{\thepage}
 
+% Allow slightly loose line breaking to prevent overfull hboxes
+\sloppy
+
 \titleformat{\chapter}[display]
 {\normalfont\huge\bfseries}{\chaptertitlename\ \thechapter}{20pt}{\Huge}
 \titlespacing*{\chapter}{0pt}{50pt}{40pt}
@@ -562,8 +565,8 @@ performance.
 \caption{Comparative analysis of related anti-UAV detection systems.}
 \label{tab:lit_compare}
 \small
-\begin{tabular}{p{3.2cm}p{2.5cm}p{2.5cm}p{2.5cm}p{2.5cm}}
-\toprule
+\begin{tabular}{|p{2.8cm}|p{2.2cm}|p{2.2cm}|p{2.2cm}|p{2.2cm}|}
+\hline
 \textbf{Work} & \textbf{Model} & \textbf{Dataset} & \textbf{Performance} & \textbf{Limitation} \\
 \hline
 Munir~\cite{munir2023kfupm} (2023) & YOLO-RAW (YOLOv5 extension) & Anti-UAV + weather-augmented & 95.2\% mAP@0.5 (clean) & Single-class; no bird discrimination \\
@@ -978,23 +981,23 @@ each service, its exposed port, and its role in the system.
 \centering
 \caption{Docker services and their roles.}
 \label{tab:docker_services}
-\begin{tabular}{|l|l|p{7cm}|}
+\begin{tabular}{|l|l|p{6.5cm}|}
 \hline
 \textbf{Service} & \textbf{Port} & \textbf{Role} \\
 \hline
-mosquitto & 8883 (TLS, external) / 1883 (plain, internal) & MQTT broker. Routes all messages between edge devices and the aggregation service. External port uses TLS with password authentication; internal port is plain for Docker-internal services. \\
+mosquitto & 8883 / 1883 & MQTT broker. External port uses TLS with password auth; internal port is plain for Docker-internal services. \\
 \hline
-aggregation & 8001 (internal only) & FastAPI service. Subscribes to all \texttt{uav/\#} MQTT topics, maintains the device state registry, and pushes real-time updates to connected browsers via WebSocket. \\
+aggregation & 8001 (internal) & FastAPI. Subscribes to all \texttt{uav/\#} MQTT topics, maintains device state registry, pushes WebSocket updates. \\
 \hline
-frontend-builder & — & One-shot build container. Compiles the React/TypeScript frontend into static files and writes them to a shared Docker volume (\texttt{frontend-dist}). Exits after build completes. \\
+frontend-builder & — & One-shot build container. Compiles React/TypeScript frontend into the shared \texttt{frontend-dist} volume. \\
 \hline
-control-center & 8080 & FastAPI service. Serves the compiled React frontend, handles JWT authentication, and proxies all \texttt{/api/*} requests to the aggregation service. \\
+control-center & 8080 & FastAPI. Serves the compiled React frontend, handles JWT authentication, proxies \texttt{/api/*} to aggregation. \\
 \hline
-signaling & 8090 (all interfaces) & Node.js WebRTC signaling server. Brokers SDP offer/answer and ICE candidate exchange between edge devices and browser clients. Must bind to \texttt{0.0.0.0} so edge devices on the local network can reach it. \\
+signaling & 8090 & Node.js WebRTC signaling. Brokers SDP/ICE between edge devices and browsers. Binds to \texttt{0.0.0.0} for edge access. \\
 \hline
-ha\_bridge & — (internal) & Silent background service. Forwards UAV detection state to external automation systems without any user-facing interface. \\
+ha\_bridge & — (internal) & Silent background service. Forwards UAV state to external automation systems. \\
 \hline
-tile-server & 8070 (optional) & Self-hosted OpenStreetMap tile server. Activated with \texttt{--profile tiles}. Serves pre-imported map tiles for offline operation. \\
+tile-server & 8070 (optional) & Self-hosted OSM tile server. Activated with \texttt{--profile tiles} for offline map operation. \\
 \hline
 \end{tabular}
 \end{table}
@@ -1031,7 +1034,7 @@ topics used in the system.
 \centering
 \caption{MQTT topic reference.}
 \label{tab:mqtt_topics}
-\begin{tabular}{|l|l|p{5.5cm}|}
+\begin{tabular}{|l|l|p{5cm}|}
 \hline
 \textbf{Topic} & \textbf{Direction} & \textbf{Description} \\
 \hline
