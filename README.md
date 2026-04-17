@@ -1,6 +1,6 @@
 # Anti-UAV Detection System
 
-Real-time UAV/drone detection and tracking system with a web-based control center and a dataset management + training toolkit.
+Real-time distributed UAV/drone detection using YOLO26s on edge devices with a centralised web-based control center.
 
 ```
 Camera Source (IP Webcam / USB / RTSP) — same network
@@ -9,308 +9,108 @@ Camera Source (IP Webcam / USB / RTSP) — same network
         └── Edge Device  ←── YOLO inference, publishes detections via MQTT
 ```
 
----
-
-## Repository Structure
-
-```
-UAV/                          ← Control center (this repo root)
-├── edge/                     ← Edge device inference stack
-├── main/                     ← Backend services (aggregation, auth, signaling, bridge)
-├── frontend/                 ← React/TypeScript control center UI
-├── docker/                   ← Docker Compose + Mosquitto config
-├── certs/gen_certs.sh        ← TLS certificate generator
-├── secrets/                  ← Generated certs (not in git — generate locally)
-├── launcher_main.py          ← Main laptop GUI launcher
-├── launcher_edge.py          ← Edge laptop GUI launcher
-└── UAV-dataset-workflow/     ← Dataset management + YOLO training toolkit
-```
+**Full documentation:** see `PROJECT.md`
 
 ---
 
-## Part 1 — Control Center
+## Quick Start
 
-### Prerequisites
+### Main Device
 
-**Both laptops** (Arch/CachyOS):
+**Option A — Desktop app (recommended)**
 
+Install Node dependencies once:
 ```bash
-sudo pacman -S python python-pip docker docker-compose ufw tk
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER
-# Log out and back in after adding yourself to the docker group
+npm install --prefix electron
 ```
 
-**Edge laptop only** — create a venv and install Python deps:
+Then launch from the KDE application launcher, or:
+```bash
+DISPLAY=:0 npm start --prefix electron
+```
+
+**Option B — Terminal**
+```bash
+cp docker/.env.example docker/.env
+# Edit docker/.env
+sudo docker compose -f docker/docker-compose.yml up -d --build
+```
+
+Open `http://localhost:8080` — default login: `admin` / `changeme`
+
+### Edge Device
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # fish: source .venv/bin/activate.fish
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install -r edge/requirements.txt
-```
 
-For GPU inference (NVIDIA):
+# Copy CA cert from main device
+scp user@<MAIN_IP>:~/path/to/UAV/secrets/ca.crt ./secrets/
 
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-```
-
----
-
-### Step 1 — Generate TLS Certificates (main device, once)
-
-```bash
-# Replace with your main device's IP on the shared network
-FORCE=1 SERVER_IP="<MAIN_DEVICE_IP>" DEVICE_IDS="edge-01" bash certs/gen_certs.sh
-```
-
-This creates `secrets/ca.crt`, `secrets/server.crt/key`, `secrets/edge-01.crt/key`.
-
-Copy the edge certs to the edge device:
-
-```bash
-scp secrets/ca.crt secrets/edge-01.crt secrets/edge-01.key user@<EDGE_IP>:~/path/to/UAV/secrets/
-```
-
----
-
-### Step 2 — Camera Source
-
-Any of these work as a camera source, as long as it's reachable on the same network as the edge device:
-
-- **IP Webcam** (Android) — install from Play Store, tap **Start server**, use the `/video` stream URL
-- **USB webcam** — set `camera.source: 0` in `edge/config.yaml`
-- **RTSP stream** — set `camera.source: rtsp://...` in `edge/config.yaml`
-
----
-
-### Step 3 — Start the Main Stack
-
-**Option A: GUI launcher (recommended)**
-
-```bash
-python launcher_main.py
-```
-
-- Set MQTT Port → `8883`, Control Center Port → `8080`
-- Click **Open Firewall Ports**, then **Start Stack**
-- Control center opens at `http://localhost:8080`
-
-**Option B: Terminal**
-
-```bash
-cp docker/.env.example docker/.env
-# Edit docker/.env if needed (admin credentials, JWT secret, etc.)
-docker compose -f docker/docker-compose.yml up -d --build
-```
-
-**First login credentials** (change immediately after first login):
-
-```
-Username: admin
-Password: changeme
-```
-
-Change via Settings → Users → Generate Invite → create new admin → deactivate old.
-
----
-
-### Step 4 — Start the Edge Device
-
-On the edge device:
-
-```bash
-# Kill any stale processes first
-pkill -f edge.main
-
+# Start
 python launcher_edge.py
 ```
 
-In the GUI:
-- **Camera URL** → your camera stream URL (e.g. `http://<camera-ip>:8080/video`)
-- **Main Device IP** → IP of the main device on the shared network
-- **Model .pt path** → path to your trained weights (e.g. BirdDrone-2C-FT)
-- **Device ID** → `edge-01`
-- Click **Save Config** → **Start Inference**
+---
 
-**To use the recommended trained model**, set the model path to:
+## Production Model
 
-```
-UAV-dataset-workflow/training/finetuned/BirdDrone-2C/weights/best.pt
-```
+**BirdDrone-2C-FT** — YOLO26s fine-tuned on DUT Anti-UAV benchmark
+
+| Metric | Value |
+|---|---|
+| mAP@0.5 | 0.969 |
+| mAP@0.5:0.95 | 0.678 |
+| Bird false alarm rate | 0.3% |
+| DUT detection rate | 0.818 |
+
+Weights: `UAV-dataset-workflow/training/finetuned/BirdDrone-2C/weights/best.pt` (tracked via Git LFS)
 
 ---
 
-### Step 5 — Open the Control Center
+## Docker Services
 
-```
-http://localhost:8080          ← from main device
-http://<main-device-ip>:8080   ← from any device on the same network
-```
-
-**Pages:**
-- **Overview** — device cards with detection counts, health, uptime
-- **Map** — live device markers, click for slide-in panel with live feed + PTZ
-- **Live Feeds** — up to 4 simultaneous WebRTC streams with bounding box overlay
-- **Devices** — full device list
-- **Logs** — WARNING+ log stream from all edge devices, filterable, CSV export
-- **Settings** — theme, user management, invite tokens, audit log (admin only)
+| Service | Port | Role |
+|---|---|---|
+| mosquitto | 8883 / 1883 | MQTT broker (TLS+password external, plain internal) |
+| aggregation | 8001 | FastAPI — device state, WebSocket, detection DB |
+| control-center | 8080 | FastAPI — UI, JWT auth, API proxy |
+| signaling | 8090 | Node.js WebRTC signaling |
+| ha_bridge | — | Silent backend bridge |
+| tile-server | 8070 | Offline OSM tiles (`--profile tiles`) |
 
 ---
 
-### Firewall Ports (main laptop)
+## Key Features
 
-| Port | Service |
-|------|---------|
-| 8883 | MQTT broker (TLS) |
-| 8080 | Control center web UI |
-| 8090 | WebRTC signaling |
-
----
-
-### Install as Android App (PWA)
-
-1. Connect Android to the same network as the main device
-2. Open Chrome → navigate to `http://<main-device-ip>:8080`
-3. Log in → tap ⋮ → **Add to Home Screen**
-4. Launches fullscreen with the UAV radar icon
+- **YOLO26s inference** on edge devices with ByteTrack multi-object tracking
+- **Real-time dashboard** with per-class detection color coding (bird=green, drone=red/orange)
+- **Interactive map** with device markers and slide-in detail panel
+- **WebRTC live feeds** — up to 4 simultaneous streams with bounding box overlay
+- **IP Webcam remote controls** — zoom, torch, ISO, exposure, snapshot via edge proxy
+- **Multi-device PTZ follow** — automatic bearing computation from detections
+- **JWT authentication** with invite tokens, session management, audit trail
+- **Notification webhooks** — HMAC-signed HTTP callbacks for detection/online/offline events
+- **Per-device alert thresholds** — configurable confidence, consecutive frames, alert classes
+- **Detection history export** — CSV download with date range filter
+- **Offline map** — self-hosted OSM tile server (Sudan tiles pre-imported)
+- **Electron desktop app** — KDE launcher entry, tray icon, auto-manages Docker stack
 
 ---
 
-### Auth & Invite Tokens
-
-- Roles: `admin` (full access) | `viewer` (read-only, no commands)
-- Invite tokens: `UAV-XXXX-XXXX` format, up to 30 days expiry
-- New users visit `/register?token=UAV-XXXX-XXXX` to create an account
-- Every PTZ/command action is written to the audit log with username + timestamp
-
----
-
-### Trained Models
-
-| Model | Classes | mAP@0.5 | mAP@0.5:0.95 | Notes |
-|---|---|---|---|---|
-| BirdDrone-2C | Bird, Drone | 0.926 | 0.554 | Base 2-class |
-| BirdDrone-3C | Bird, Drone, UAV | 0.892 | 0.574 | Base 3-class |
-| BirdDrone-2C-FT | Bird, Drone | 0.969 | 0.678 | **Recommended** |
-| BirdDrone-3C-FT | Bird, Drone, UAV | 0.881 | 0.598 | Fine-tuned 3-class |
-
-Weights are in `UAV-dataset-workflow/training/` (not tracked in git — large files).
-
----
-
-### Troubleshooting
-
-| Symptom | Fix |
-|---------|-----|
-| Edge not appearing on dashboard | Check `docker compose logs aggregation` |
-| MQTT TLS error on edge | Regenerate certs with correct `SERVER_IP`, restart mosquitto |
-| Live feed black / waiting | Start IP Webcam on phone first, then click Stream |
-| Camera test fails (no module cv2) | Run from `.venv/bin/python3`, not system python |
-| Login fails | Check `BOOTSTRAP_ADMIN_PASSWORD` in `docker/.env` |
-| Docker permission denied | `sudo usermod -aG docker $USER` then re-login |
-
----
-
-## Part 2 — Dataset Workflow & Training
-
-Located in `UAV-dataset-workflow/`. A PyQt5 desktop app + CLI for managing anti-UAV datasets and training YOLO26 models.
-
-### Prerequisites
+## Dataset Workflow
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate      # fish: source .venv/bin/activate.fish
-pip install -e ".[dev]"
+python UAV-dataset-workflow/launch.py        # interactive menu
+python UAV-dataset-workflow/launch.py --gui  # full launcher GUI
 ```
 
-Requires Python 3.10+.
+See `UAV-dataset-workflow/README.md` for the full ML pipeline documentation.
 
 ---
 
-### Launching the GUI
+## Report
 
-**Option A: Unified launcher script**
-
-```bash
-python UAV-dataset-workflow/launch.py
-```
-
-This opens an interactive menu listing all available datasets with image counts. Select a number to open the image reviewer for that dataset, or `0` to open the full launcher GUI.
-
-You can also pass a dataset name directly:
-
-```bash
-python UAV-dataset-workflow/launch.py uavs
-python UAV-dataset-workflow/launch.py --gui    # full launcher directly
-```
-
-**Option B: CLI entry point** (after `pip install -e .`)
-
-```bash
-anti-uav                          # full launcher GUI
-anti-uav inspect <dataset_path>   # inspect a dataset
-anti-uav review <dataset_path>    # open image reviewer
-anti-uav normalize <path> --mapping mapping.json
-anti-uav merge
-anti-uav train --profile rtx2070
-anti-uav document <run_dir>
-anti-uav compare
-```
-
----
-
-### GUI Workflow
-
-```
-1. Inspect    → scan dataset folder, detect annotation format, compute stats
-2. Review     → browse images, curate labels, remap classes via hover-preview GUI
-3. Normalize  → remap all source labels to canonical classes (Bird / Drone / UAV)
-4. Merge      → combine datasets, deduplicate by SHA-256, write data.yaml
-5. Train      → YOLO26 training with hardware profiles (RTX 2070 / Colab T4)
-6. Document   → auto-generate per-run Markdown docs and comparison reports
-7. Evaluate   → DUT Anti-UAV video-level detection analysis with annotated MP4 output
-```
-
----
-
-### Class Mapping
-
-Two canonical class sets are supported:
-
-- **2-class** (`mapping_2class.json`): `Bird`, `Drone`
-- **3-class** (`mapping.json`): `Bird`, `Drone`, `UAV`
-
----
-
-### Training Profiles
-
-| Profile | Hardware | Batch | Notes |
-|---------|----------|-------|-------|
-| `rtx2070` | NVIDIA RTX 2070 8 GB | 16 | Local training |
-| `colab_t4` | Google Colab T4 | 32 | Remote, semi-automated |
-| `kaggle` | Kaggle P100 | 32 | Remote, fully automated via API |
-
----
-
-### Dataset Structure Expected
-
-```
-datasets/
-  <dataset-name>/
-    train/
-      images/   ← .jpg / .png
-      labels/   ← YOLO .txt annotations
-    valid/
-      images/
-      labels/
-```
-
----
-
-### Full Documentation
-
-See `UAV-dataset-workflow/documentations/` for:
-- `report_full.pdf` — full scientific report (methodology, results, discussion)
-- `citations.md` — dataset citation requirements
-- Per-run training graphs and comparison reports
+`report_full.pdf` — 56-page academic report covering methodology, training, evaluation, and system architecture.
