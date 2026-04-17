@@ -9,6 +9,9 @@
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{longtable}
+% Full-grid table style
+\setlength{\arrayrulewidth}{0.4pt}
+\renewcommand{\arraystretch}{1.3}
 \usepackage{hyperref}
 \hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
 \usepackage{amsmath}
@@ -562,7 +565,7 @@ performance.
 \begin{tabular}{p{3.2cm}p{2.5cm}p{2.5cm}p{2.5cm}p{2.5cm}}
 \toprule
 \textbf{Work} & \textbf{Model} & \textbf{Dataset} & \textbf{Performance} & \textbf{Limitation} \\
-\midrule
+\hline
 Munir~\cite{munir2023kfupm} (2023) & YOLO-RAW (YOLOv5 extension) & Anti-UAV + weather-augmented & 95.2\% mAP@0.5 (clean) & Single-class; no bird discrimination \\
 Coluccia et al.~\cite{coluccia2021sensors} (2021) & Various (challenge) & DvB Grand Challenge & F1 up to 0.91 & No distributed deployment \\
 Reis et al.~\cite{reis2024yolov8} (2024) & YOLOv8 (multi-size) & 15,064 flying objects & 99.1\% mAP@0.5 (3-class) & No bird class; no edge deployment \\
@@ -748,7 +751,7 @@ BirdDrone-2C-FT uses a 2-class taxonomy:
 \begin{tabular}{lll}
 \toprule
 \textbf{Class} & \textbf{Index} & \textbf{Description} \\
-\midrule
+\hline
 Bird  & 0 & Birds --- confuser class, not a threat \\
 Drone & 1 & All aerial vehicles: consumer drones, quadcopters, fixed-wing UAVs \\
 \bottomrule
@@ -784,7 +787,7 @@ All training datasets are licensed under CC BY 4.0 or CC0.
 \begin{tabular}{llccc}
 \toprule
 \textbf{Dataset} & \textbf{Source} & \textbf{License} & \textbf{Images} & \textbf{Class} \\
-\midrule
+\hline
 Birds.v1i.yolov8~\cite{birds_roboflow}   & Roboflow Universe & CC BY 4.0 & 3,404 & Bird \\
 fixed-wing-uav~\cite{fixedwing_kaggle}   & Kaggle (nyahmet)  & CC0       & 554   & Drone \\
 anti-uav~\cite{antiuav_roboflow}         & Roboflow Universe & CC BY 4.0 & 2,850* & Drone \\
@@ -833,7 +836,7 @@ only frames with confident detections were retained as training samples.
 \begin{tabular}{lccc}
 \toprule
 \textbf{Base Model} & \textbf{Annotated frames} & \textbf{Yield} & \textbf{Total fine-tune train set} \\
-\midrule
+\hline
 BirdDrone-2C & 11,345 & 45.7\% & 13,984 (original 4,901 + 9,083 DUT) \\
 \bottomrule
 \end{tabular}
@@ -870,7 +873,7 @@ YOLO26s was selected over larger variants for the following reasons:
 \begin{tabular}{ll}
 \toprule
 \textbf{Parameter} & \textbf{Value} \\
-\midrule
+\hline
 Epochs       & 100 \\
 Batch size   & 16 \\
 Image size   & 640 \\
@@ -933,7 +936,7 @@ comparable to domain-randomisation augmentation.
 \begin{tabular}{ll}
 \toprule
 \textbf{Parameter} & \textbf{Value} \\
-\midrule
+\hline
 Base weights & BirdDrone-2C best.pt \\
 Epochs       & 20 (early stopping at epoch 11) \\
 Batch size   & 16 \\
@@ -965,7 +968,110 @@ epoch 3 and did not improve for 8 consecutive epochs, triggering early
 stopping. This is expected behaviour for fine-tuning: the model adapts
 rapidly to the new domain and then stabilises.
 
-\section{DUT Anti-UAV Evaluation Methodology}
+\section{Docker Services Architecture}
+
+The main device runs all server-side services as Docker containers on a shared
+internal network (\texttt{uav-net}). Table~\ref{tab:docker_services} summarises
+each service, its exposed port, and its role in the system.
+
+\begin{table}[H]
+\centering
+\caption{Docker services and their roles.}
+\label{tab:docker_services}
+\begin{tabular}{|l|l|p{7cm}|}
+\hline
+\textbf{Service} & \textbf{Port} & \textbf{Role} \\
+\hline
+mosquitto & 8883 (TLS, external) / 1883 (plain, internal) & MQTT broker. Routes all messages between edge devices and the aggregation service. External port uses TLS with password authentication; internal port is plain for Docker-internal services. \\
+\hline
+aggregation & 8001 (internal only) & FastAPI service. Subscribes to all \texttt{uav/\#} MQTT topics, maintains the device state registry, and pushes real-time updates to connected browsers via WebSocket. \\
+\hline
+frontend-builder & — & One-shot build container. Compiles the React/TypeScript frontend into static files and writes them to a shared Docker volume (\texttt{frontend-dist}). Exits after build completes. \\
+\hline
+control-center & 8080 & FastAPI service. Serves the compiled React frontend, handles JWT authentication, and proxies all \texttt{/api/*} requests to the aggregation service. \\
+\hline
+signaling & 8090 (all interfaces) & Node.js WebRTC signaling server. Brokers SDP offer/answer and ICE candidate exchange between edge devices and browser clients. Must bind to \texttt{0.0.0.0} so edge devices on the local network can reach it. \\
+\hline
+ha\_bridge & — (internal) & Silent background service. Forwards UAV detection state to external automation systems without any user-facing interface. \\
+\hline
+tile-server & 8070 (optional) & Self-hosted OpenStreetMap tile server. Activated with \texttt{--profile tiles}. Serves pre-imported map tiles for offline operation. \\
+\hline
+\end{tabular}
+\end{table}
+
+The internal Docker network (\texttt{uav-net}) allows services to communicate
+by container name without exposing ports to the host. The aggregation service
+connects to Mosquitto on port 1883 (plain, no TLS) because both containers
+are on the same trusted internal network --- TLS overhead is unnecessary for
+intra-container communication. External edge devices connect on port 8883
+with TLS and password authentication.
+
+The \texttt{frontend-dist} Docker volume is shared between the
+\texttt{frontend-builder} and \texttt{control-center} containers. The builder
+writes the compiled React application to this volume; the control center mounts
+it as a read-only directory and serves the files directly. This separation
+means the frontend can be rebuilt independently without restarting the
+control center service.
+
+\section{MQTT Communication Protocol}
+
+MQTT (Message Queuing Telemetry Transport) is the communication backbone of
+the distributed detection system. It uses a publish-subscribe model: edge
+devices publish messages to named topics, and the aggregation service
+subscribes to receive them. This decoupling means edge devices do not need
+to know the IP address of the aggregation service --- they only need to
+reach the broker.
+
+The topic hierarchy follows the pattern \texttt{uav/\{type\}/\{device\_id\}},
+where \texttt{type} identifies the message category and \texttt{device\_id}
+identifies the originating edge node. Table~\ref{tab:mqtt_topics} lists all
+topics used in the system.
+
+\begin{table}[H]
+\centering
+\caption{MQTT topic reference.}
+\label{tab:mqtt_topics}
+\begin{tabular}{|l|l|p{5.5cm}|}
+\hline
+\textbf{Topic} & \textbf{Direction} & \textbf{Description} \\
+\hline
+\texttt{uav/tracking/\{id\}} & Edge $\to$ Main & Detection results per frame: bounding boxes, labels, confidence scores, track IDs. Published at inference frame rate (up to 25 fps). QoS 0. \\
+\hline
+\texttt{uav/status/\{id\}} & Edge $\to$ Main & Online/offline status, active model name, GPS coordinates. Published as a retained message so the control center receives the last known status immediately on connection. QoS 1. \\
+\hline
+\texttt{uav/health/\{id\}} & Edge $\to$ Main & CPU usage, memory usage, inference FPS, uptime. Published every 30 seconds. QoS 0. \\
+\hline
+\texttt{uav/log/\{id\}} & Edge $\to$ Main & WARNING and above log entries from the edge inference process. QoS 0. \\
+\hline
+\texttt{uav/sensor/\{id\}} & Edge $\to$ Main & Compass bearing and pitch from the edge device sensor. QoS 0. \\
+\hline
+\texttt{uav/ptz/status/\{id\}} & Edge $\to$ Main & PTZ camera position after each command. QoS 0. \\
+\hline
+\texttt{uav/ipwebcam/capabilities/\{id\}} & Edge $\to$ Main & Available IP Webcam settings and their valid ranges. Published once on startup. QoS 0. \\
+\hline
+\texttt{uav/ipwebcam/sensors/\{id\}} & Edge $\to$ Main & Phone sensor data: battery level, temperature, light, motion, pressure. QoS 0. \\
+\hline
+\texttt{uav/snapshot/\{id\}} & Edge $\to$ Main & Base64-encoded JPEG snapshot from the camera. Published on demand. QoS 0. \\
+\hline
+\texttt{uav/command/\{id\}} & Main $\to$ Edge & Commands: \texttt{start\_stream}, \texttt{stop\_stream}, \texttt{switch\_model}, \texttt{update\_config}, \texttt{ipwebcam\_control}, \texttt{ipwebcam\_sensors}. QoS 1. \\
+\hline
+\texttt{uav/ptz/\{id\}} & Main $\to$ Edge & PTZ commands: pan, tilt, zoom, \texttt{pan\_to\_bearing}. QoS 0. \\
+\hline
+\end{tabular}
+\end{table}
+
+Retained messages (used for \texttt{uav/status/\{id\}}) are stored by the
+broker and delivered immediately to any new subscriber. This ensures that
+when the control center restarts or a new browser connects, it immediately
+receives the last known status of every edge device without waiting for the
+next status publication.
+
+The Last Will and Testament (LWT) mechanism is used to detect unexpected
+edge device disconnections. Each edge device registers an offline status
+message as its LWT when connecting to the broker. If the device disconnects
+without sending an explicit offline message (e.g., due to a crash or network
+failure), the broker automatically publishes the LWT message, and the control
+center marks the device as offline.
 
 Since per-frame annotations are not available in the tracking split, the
 following proxy metrics are used:
@@ -992,7 +1098,7 @@ large gaps correspond to the UAV genuinely leaving the camera field of view
 \begin{tabular}{llccc}
 \toprule
 \textbf{Video} & \textbf{Frames} & \textbf{Duration} & \textbf{Cause} \\
-\midrule
+\hline
 video07 & 423--580  & 6.3s  & UAV left frame \\
 video09 & 537--1042 & 20.2s & UAV left frame \\
 video12 & 687--939  & 10.1s & UAV left frame + tracking loss \\
@@ -1116,10 +1222,10 @@ which are noisier than the manually annotated base training data.
 \begin{tabular}{lcccc}
 \toprule
 \textbf{Model} & \textbf{mAP@0.5} & \textbf{mAP@0.5:0.95} & \textbf{Precision} & \textbf{Recall} \\
-\midrule
+\hline
 BirdDrone-2C (base) & 0.926 & 0.554 & 0.942 & 0.873 \\
 \textbf{BirdDrone-2C-FT} & \textbf{0.969} & \textbf{0.678} & \textbf{0.961} & \textbf{0.934} \\
-\midrule
+\hline
 Improvement & +0.043 & +0.124 & +0.019 & +0.061 \\
 \bottomrule
 \end{tabular}
@@ -1154,7 +1260,7 @@ tracking (which uses the bounding box centre as the tracking target).
 \begin{tabular}{lcc}
 \toprule
 \textbf{Test Set} & \textbf{BirdDrone-2C (base)} & \textbf{BirdDrone-2C-FT} \\
-\midrule
+\hline
 Anti-UAV test (1,659 img, UAV)         & 0.934 & 0.929 ($-$0.005) \\
 UAVDetector test (165 img, fixed-wing) & 0.273 & \textbf{0.341} ($+$0.069) \\
 Birds.v1i valid (378 img, Bird)        & 0.973 & 0.972 ($-$0.001) \\
@@ -1196,7 +1302,7 @@ or DUT datasets.
 \begin{tabular}{lccc}
 \toprule
 \textbf{Model} & \textbf{Correct (Bird)} & \textbf{False alarm (Bird$\to$Drone)} & \textbf{Missed} \\
-\midrule
+\hline
 BirdDrone-2C (base) & 362 (95.8\%) & 1 (0.3\%) & 24 \\
 \textbf{BirdDrone-2C-FT} & \textbf{364 (96.3\%)} & \textbf{1 (0.3\%)} & \textbf{17} \\
 \bottomrule
@@ -1255,7 +1361,7 @@ background types, teaches the model to suppress these uncertain activations.
 \begin{tabular}{lcc}
 \toprule
 \textbf{Metric} & \textbf{BirdDrone-2C (base)} & \textbf{BirdDrone-2C-FT} \\
-\midrule
+\hline
 Avg Detection Rate    & 0.808 & \textbf{0.818} \\
 Avg Confidence        & 0.671 & \textbf{0.790} \\
 First-frame TP Rate   & 0.850 & \textbf{0.850} \\
@@ -1330,12 +1436,12 @@ the 20 videos (at 25 fps).
 \caption{Per-video DUT results: BirdDrone-2C base vs BirdDrone-2C-FT.}\\
 \toprule
 \textbf{Video} & \textbf{Base DR} & \textbf{FT DR} & \textbf{$\Delta$ DR} & \textbf{Base Gaps} & \textbf{FT Gaps} & \textbf{FT Conf} \\
-\midrule
+\hline
 \endfirsthead
 \multicolumn{7}{c}{\tablename\ -- continued}\\
 \toprule
 \textbf{Video} & \textbf{Base DR} & \textbf{FT DR} & \textbf{$\Delta$ DR} & \textbf{Base Gaps} & \textbf{FT Gaps} & \textbf{FT Conf} \\
-\midrule
+\hline
 \endhead
 video01 & 0.824 & 0.855 & +0.031 & 5  & 5  & high \\
 video02 & 0.879 & 1.000 & +0.121 & 0  & 0  & high \\
@@ -1357,7 +1463,7 @@ video17 & 0.550 & 0.606 & +0.056 & 21 & 17 & med \\
 video18 & 0.958 & 0.956 & $-$0.002 & 2  & 1  & high \\
 video19 & 0.995 & 0.850 & $-$0.145 & 0  & 8  & high \\
 video20 & 0.793 & 0.769 & $-$0.024 & 19 & 20 & high \\
-\midrule
+\hline
 \textbf{Average} & \textbf{0.808} & \textbf{0.818} & \textbf{+0.010} & \textbf{199} & \textbf{131} & \\
 \bottomrule
 \end{longtable}
@@ -1678,8 +1784,9 @@ BirdDrone-2C-FT detection model. It provides the following operational
 capabilities:
 
 \begin{itemize}
-  \item \textbf{Per-class color coding}: drone detections are shown in red,
-        bird detections in amber. Operators can instantly distinguish genuine
+  \item \textbf{Per-class color coding}: drone detections are shown in red
+        (confidence $\geq$ 0.5) or orange (confidence $<$ 0.5), and bird
+        detections in green. Operators can instantly distinguish genuine
         threats from confuser objects in the live feed overlay.
   \item \textbf{Confidence display}: each bounding box shows the detection
         confidence score, allowing operators to apply their own threshold
@@ -1697,6 +1804,130 @@ capabilities:
         devices are aggregated and searchable, providing a complete audit
         trail of system events.
 \end{itemize}
+
+\subsection{Overview Dashboard}
+
+Figure~\ref{fig:main_overview} shows the main overview page of the control
+center. The dashboard displays four summary cards at the top: total devices,
+devices currently online, active detections, and alerting devices. Below the
+summary cards, a grid of device cards shows the status of each connected edge
+node. Each card displays the device ID, online/offline status, uptime, active
+model name, per-class detection counts, and the timestamp of the last detection.
+Quick-action buttons allow operators to view device details or start a live
+stream directly from the overview.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figures/main-overview.png}
+  \caption{Anti-UAV Control Center overview dashboard. Summary cards at the
+  top show system-wide status. Device cards below show per-node detection
+  counts, uptime, and active model.}
+  \label{fig:main_overview}
+\end{figure}
+
+\subsection{Interactive Map}
+
+Figure~\ref{fig:map} shows the interactive map view. Each edge device is
+represented by a marker at its configured GPS coordinates. Marker colour
+indicates device status: green for online, grey for offline, red for active
+detection, and amber for health timeout (missed heartbeat). Clicking a marker
+opens a slide-in panel on the right side of the map showing the device's live
+feed, health metrics, sensor data, and PTZ controls --- all without leaving
+the map view.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figures/map.png}
+  \caption{Interactive map view with device markers. Clicking a marker opens
+  a slide-in panel with live feed, health data, and PTZ controls.}
+  \label{fig:map}
+\end{figure}
+
+The map uses OpenStreetMap tiles served either from the internet or from a
+self-hosted tile server for offline operation. The self-hosted option is
+activated by importing a regional \texttt{.osm.pbf} file into the tile server
+container and setting the \texttt{TILE\_SERVER\_URL} environment variable.
+
+\subsection{Live Feeds}
+
+The Live Feeds page displays up to four simultaneous WebRTC video streams in
+a grid layout. Streams start automatically when the page opens. Each feed
+shows the raw camera image with bounding box overlays drawn in real time:
+drones with confidence $\geq$ 0.5 are shown in red, drones with confidence
+$<$ 0.5 in orange, and birds in green. Each bounding box is labelled with
+the track ID and confidence score. A class legend in the corner of each feed
+identifies the colour coding. The page shows a ``Waiting for stream\ldots''
+indicator while the WebRTC connection is being established, and a
+``Stream interrupted --- reconnecting\ldots'' indicator if the connection drops.
+
+\subsection{Device Detail and Configuration}
+
+The Device Detail page provides a full-page view of a single edge device.
+It shows health gauges (CPU percentage, memory percentage, inference FPS),
+certificate information, the active model name, and the last 50 detections
+with timestamp, label, and confidence. An Edit Config panel allows operators
+to push configuration changes to the edge device at runtime --- updating the
+camera source URL, frame rate, or active model --- without restarting the
+inference process.
+
+\subsection{IP Webcam Remote Controls}
+
+When an edge device is configured with an IP Webcam URL, the Device Detail
+page shows an additional IP Webcam Controls panel. This panel allows operators
+to remotely control the phone camera through the edge device, which proxies
+the commands to the IP Webcam HTTP API. Available controls include:
+
+\begin{itemize}
+  \item \textbf{Stream}: zoom slider (0--100), video resolution dropdown
+        (populated from the phone's supported resolutions), and JPEG quality
+        slider.
+  \item \textbf{Camera}: torch (flashlight) toggle, front/back camera toggle,
+        night vision mode toggle, and timestamp overlay toggle.
+  \item \textbf{Focus}: focus mode dropdown (auto, macro, infinity, fixed)
+        and a manual focus trigger button.
+  \item \textbf{Exposure}: manual sensor mode toggle, ISO sensitivity slider,
+        exposure time input (in milliseconds), frame duration input, aperture
+        input, exposure lock toggle, and white balance lock toggle. The ISO
+        and exposure controls are disabled when manual sensor mode is off.
+  \item \textbf{Recording}: video recording toggle and a snapshot button.
+        Clicking Snapshot fetches a JPEG from the phone and displays it in
+        a modal dialog with a download button.
+\end{itemize}
+
+Phone sensor data (battery level, battery temperature, ambient light, motion,
+atmospheric pressure) is polled every 30 seconds and displayed in the health
+section of the Device Detail page.
+
+\subsection{Authentication and Access Control}
+
+The control center uses JWT-based authentication with invite-token registration.
+An administrator generates a single-use invite token (format: \texttt{UAV-XXXX-XXXX},
+valid for up to 30 days) and shares it out-of-band. The new user visits
+\texttt{/register?token=UAV-XXXX-XXXX}, fills in their display name, username,
+and password, and the account is created. The token is consumed and cannot be
+reused.
+
+Two roles are supported: \texttt{admin} (full access including PTZ commands,
+model switching, user management, and audit log) and \texttt{viewer}
+(read-only access to detection data and live feeds). Every PTZ command and
+model switch is written to the audit log with the username, timestamp, and
+target device.
+
+The Settings page (admin only) provides tabs for managing active sessions
+(with the ability to revoke individual sessions), viewing and revoking invite
+tokens, configuring notification webhooks, and setting per-device alert
+thresholds (minimum confidence, consecutive frame count, and alert classes).
+
+\subsection{Notification Webhooks}
+
+The system supports HTTP webhook notifications for three event types:
+\texttt{detection\_alert} (when a detection meets the configured threshold),
+\texttt{device\_online} (when an edge device connects), and
+\texttt{device\_offline} (when an edge device disconnects or times out).
+Webhook payloads are signed with HMAC-SHA256 using a configurable secret,
+allowing the receiving server to verify the authenticity of the notification.
+Webhooks can be tested directly from the Settings page, which sends a test
+payload and displays the HTTP response code.
 
 % ============================================================
 \chapter{Conclusion}
