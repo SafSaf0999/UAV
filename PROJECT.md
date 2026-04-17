@@ -404,3 +404,184 @@ See `UAV-dataset-workflow/README.md` for full documentation.
 1. Connect Android to same network as main device
 2. Open Chrome → `http://<main-device-ip>:8080`
 3. Log in → tap ⋮ → **Add to Home Screen**
+4. App installs with the UAV radar icon and opens fullscreen
+
+---
+
+## 19. Data Flow — Detection
+
+1. Camera captures a frame at the configured FPS
+2. YOLO26s inference engine runs detection → produces bounding boxes with class labels and confidence scores
+3. ByteTrack assigns persistent track IDs across frames so the same drone keeps the same ID
+4. Edge device serialises the detection payload as JSON and publishes to `uav/tracking/{device_id}` (QoS 0)
+5. Aggregation service receives the message, validates the JSON schema, updates the device state registry
+6. Aggregation pushes the update via WebSocket to all connected browser clients
+7. Control center frontend draws bounding boxes on the live feed overlay with colour coding
+8. Map marker turns red and shows a detection alert badge
+
+---
+
+## 20. Data Flow — Live Video (WebRTC)
+
+1. Operator clicks **Stream** on a device card, or the Live Feeds page auto-starts streams on open
+2. Control center sends `start_stream` command via MQTT to the edge device
+3. Edge device starts a WebRTC peer connection and registers with the signaling server as a publisher
+4. Browser connects to the signaling server as a subscriber for that device
+5. SDP offer/answer and ICE candidates are exchanged through the signaling server
+6. Video flows directly from the edge device to the browser (peer-to-peer, DTLS-SRTP encrypted)
+7. The signaling server is only used for connection setup — it does not relay video
+
+**Black screen fix (applied):** The edge device waits for the first real camera frame before sending the WebRTC offer. The browser calls `video.play()` explicitly on the `canplay` event rather than relying on `autoPlay`.
+
+---
+
+## 21. Data Flow — IP Webcam Controls
+
+1. Operator adjusts a control in the IP Webcam Controls panel (e.g. zoom slider)
+2. Frontend sends `POST /api/command/{device_id}` with `{action: "ipwebcam_control", setting: "zoom", value: 50}`
+3. Control center proxies to aggregation, which publishes to `uav/command/{device_id}` via MQTT
+4. Edge device receives the command, `IPWebcamHandler` calls `GET http://<phone-ip>:8080/zoom?level=50`
+5. IP Webcam app on the phone applies the setting immediately
+6. For snapshots: edge fetches `photo.jpg`, base64-encodes it, publishes to `uav/snapshot/{device_id}`
+7. Aggregation forwards the snapshot via WebSocket to the browser, which displays it in a modal
+
+---
+
+## 22. Edge Device Startup Sequence
+
+```
+1.  launcher_edge.py opens (or: python -m edge.main)
+2.  Config loaded from edge/config.yaml
+3.  CameraSource thread starts — connects to camera, retries every 5s on failure
+4.  InferenceEngine thread starts — reads frames, runs YOLO26s + ByteTrack
+5.  MQTTClient connects to broker with username/password + TLS (ca.crt only)
+6.  LWT registered: if edge crashes, broker publishes offline status automatically
+7.  Online status published (retained) to uav/status/{device_id}
+8.  HealthReporter starts — publishes CPU/memory/FPS every 30s
+9.  MQTTLogHandler attached — WARNING+ logs published to uav/log/{device_id}
+10. If ipwebcam.url configured: capabilities fetched and published to uav/ipwebcam/capabilities/{device_id}
+11. Waits for start_stream command to begin WebRTC streaming
+```
+
+---
+
+## 23. Main Device Startup Sequence
+
+```
+1.  Electron app launches (or: docker compose up -d)
+2.  Mosquitto starts — TLS broker on port 8883, plain on 1883
+3.  Aggregation service starts — subscribes to all uav/# topics, initialises detections.db
+4.  Frontend builder runs — compiles React app into frontend-dist volume (one-shot)
+5.  Control center starts — serves frontend, JWT auth, proxies to aggregation
+6.  Signaling server starts — WebRTC SDP/ICE relay on port 8090
+7.  ha_bridge starts — silent backend data bridge
+8.  Health checker background task starts — checks device heartbeats every 10s
+9.  IP Webcam sensor poller starts — polls sensors every 30s for online devices
+10. Open browser at http://localhost:8080
+11. Log in with admin credentials
+```
+
+---
+
+## 24. Settings Page Reference (Admin Only)
+
+### Users tab
+- View all users with role, creation date, last login
+- Deactivate users
+- Generate invite tokens (UAV-XXXX-XXXX format, up to 30 days)
+- Copy token or registration link to clipboard
+
+### Tokens tab
+- View all invite tokens with status (pending / used / expired)
+- See who used each token and when
+- Revoke unused tokens
+
+### Sessions tab
+- View all active JWT sessions with username, login time, last seen, user agent
+- Revoke individual sessions (invalidates the JWT immediately)
+
+### Notifications tab
+- Add webhook URLs for events: `detection_alert`, `device_online`, `device_offline`
+- Configure HMAC-SHA256 secret for payload signing
+- Enable/disable individual webhooks
+- Test webhook (sends test payload, shows HTTP response code)
+
+### Thresholds tab
+- Per-device alert configuration:
+  - `min_confidence` — minimum detection confidence to trigger alert (default 0.5)
+  - `consecutive_frames` — number of consecutive frames with detection before alerting (default 1)
+  - `alert_classes` — which classes trigger alerts (default: drone)
+
+### Audit Log tab
+- Every PTZ command, model switch, and config push logged with username + timestamp + device
+
+---
+
+## 25. Model Switching at Runtime
+
+Operators can switch the active YOLO model on any edge device without restarting:
+
+1. Go to Device Detail → Edit Config → set Active Model to the profile name
+2. Control center publishes `update_config` command via MQTT
+3. Edge device pauses inference, loads new `.pt` file (≤5s)
+4. Atomically swaps the model, resumes inference
+5. Status message updates with new active model name
+
+Model profiles are defined in `edge/config.yaml`:
+```yaml
+model_profiles:
+  - name: BirdDrone-2C-FT
+    file_path: /path/to/best.pt
+    camera_mode: daylight
+    class_colors:
+      Bird: "#22c55e"
+      Drone: "#ef4444"
+  - name: thermal-v1
+    file_path: /path/to/thermal.pt
+    camera_mode: thermal    # applies CLAHE + colormap preprocessing
+```
+
+---
+
+## 26. Health Timeout Detection
+
+The aggregation service runs a background task every 10 seconds checking device heartbeats:
+
+- If a device was `online` and has not sent a health message in **>60 seconds** → status changes to `health_timeout` (amber badge on dashboard)
+- If a health message arrives for a `health_timeout` device → status restores to `online`
+- If a device disconnects cleanly (LWT) → status is `offline` (grey badge)
+- `health_timeout` is distinct from `offline` — it means the process may have crashed without a clean disconnect
+
+---
+
+## 27. Firewall Ports (Main Device)
+
+```fish
+sudo ufw allow 8883/tcp   # MQTT broker (edge devices)
+sudo ufw allow 8080/tcp   # Control center web UI
+sudo ufw allow 8090/tcp   # WebRTC signaling (edge devices)
+sudo ufw reload
+```
+
+Port 8070 (tile server) is bound to `127.0.0.1` only — no firewall rule needed.
+
+---
+
+## 28. Stopping Everything
+
+### Electron app
+Close window → **Shut Down** — stops all containers automatically.
+
+### Terminal
+```fish
+sudo docker compose -f docker/docker-compose.yml down
+
+# With tile server:
+sudo docker compose -f docker/docker-compose.yml --profile tiles down
+```
+
+### Edge device
+```fish
+pkill -f edge.main
+# or Ctrl+C in the terminal running python -m edge.main
+```
