@@ -102,26 +102,103 @@ and edge device health monitoring.
 % ============================================================
 \chapter{Introduction}
 
-The proliferation of consumer and commercial unmanned aerial vehicles (UAVs)
-poses increasing challenges to airspace security, critical infrastructure
-protection, and aviation safety. Vision-based anti-UAV systems must reliably
-detect aerial objects in real time, distinguishing between genuine threats
-(drones) and confuser objects (birds) that share similar visual characteristics
-at distance.
+\section{Background of the Study}
 
-This project addresses the full pipeline from dataset curation and model
-training to real-time deployment on distributed edge hardware. The system
-architecture follows a two-tier design: edge devices running YOLO26s inference
-on local camera feeds, publishing detection results over MQTT to a central
-control center that aggregates, visualises, and allows operators to control
-all connected devices.
+In recent years, electrical and computer engineering systems have experienced
+significant technological advancements, particularly in the areas of artificial
+intelligence, computer vision, and distributed embedded computing. Unmanned
+aerial vehicles (UAVs), commonly known as drones, have proliferated rapidly
+across both consumer and commercial markets. Originally confined to military
+applications, UAVs are now widely used in photography, agriculture, logistics,
+and infrastructure inspection.
 
-The chosen production model is \textbf{BirdDrone-2C-FT} --- a YOLO26s model
-trained on a curated 2-class (Bird/Drone) dataset and fine-tuned on the
-DUT Anti-UAV benchmark. This report documents the full training methodology,
-evaluation results, and deployment architecture for this model.
+This technological democratisation has, however, introduced serious security
+challenges. Consumer drones are increasingly exploited for surveillance,
+smuggling, and attacks on critical infrastructure. Airports, power stations,
+government facilities, and public events are all vulnerable to unauthorised
+UAV incursions. Vision-based anti-UAV detection systems have emerged as a
+cost-effective countermeasure, leveraging advances in deep learning object
+detection to identify and track aerial threats in real time.
 
-\subsection{The UAV Threat Landscape}
+A key challenge in vision-based UAV detection is the visual similarity
+between drones and birds at long range. Both occupy the same low-altitude
+airspace, exhibit similar apparent sizes at distance, and move in comparable
+flight patterns. Distinguishing between them is the central technical problem
+that this project addresses.
+
+\section{Problem Statement}
+
+Existing anti-UAV detection systems suffer from three principal limitations.
+First, single-class drone detectors do not distinguish between drones and
+birds, leading to high false alarm rates in environments with bird activity.
+Second, models trained on clean benchmark datasets degrade significantly
+when deployed on real-world sequences with complex backgrounds such as
+urban structures, tree canopies, and sky gradients. Third, most published
+systems operate as standalone detectors without a distributed architecture
+that allows multiple edge nodes to be monitored and controlled from a
+centralised interface.
+
+These limitations reduce the operational utility of existing systems:
+a detector that generates frequent false alarms on birds will be disabled
+by operators, and a system that cannot be monitored centrally cannot be
+deployed at scale across a protected perimeter.
+
+\section{Significance of the Project}
+
+This project contributes to the field of airspace security and intelligent
+embedded systems in the following ways:
+
+\begin{itemize}
+  \item \textbf{Academic contribution}: Demonstrates a complete pipeline
+        from dataset curation and model training to real-world evaluation
+        on the DUT Anti-UAV benchmark, providing reproducible baselines
+        for the Bird/Drone discrimination task.
+  \item \textbf{Practical contribution}: Delivers a deployable distributed
+        detection system with a web-based control center, enabling real-time
+        monitoring of multiple edge nodes from a single interface.
+  \item \textbf{Technical contribution}: Introduces a pseudo-label fine-tuning
+        methodology that improves detection continuity on real-world sequences
+        without requiring manual annotation of the fine-tuning data.
+\end{itemize}
+
+\section{Project Objectives}
+
+\begin{enumerate}
+  \item Train a YOLO26s model for 2-class aerial object detection (Bird, Drone)
+        on curated RGB datasets with balanced class representation.
+  \item Fine-tune the model on the DUT Anti-UAV benchmark to improve real-world
+        detection continuity and reduce false positives.
+  \item Implement a distributed edge-computing inference pipeline with
+        MQTT communication, WebRTC live streaming, and PTZ camera control.
+  \item Develop a modern web-based control center with JWT authentication
+        and real-time monitoring.
+\end{enumerate}
+
+\section{Scope and Limitations}
+
+\begin{itemize}
+  \item Training datasets are limited to publicly available RGB drone and
+        bird imagery (CC BY 4.0 and CC0 licenses).
+  \item Thermal infrared modality is identified as future work.
+  \item The DUT Anti-UAV evaluation uses proxy metrics (detection rate,
+        tracking gaps) since per-frame annotations are not available in
+        the tracking split.
+  \item The system is evaluated under normal lighting and weather conditions;
+        adverse weather robustness is not assessed in the current work.
+\end{itemize}
+
+The thermal infrared gap deserves specific mention. Delleji et al.~\cite{delleji2025thermal}
+demonstrate that existing public thermal datasets are inadequate for aerial
+drone detection: the FLIR ADAS dataset targets automotive scenes, the KAIST
+Multispectral dataset focuses on pedestrian detection, and available aerial
+thermal datasets contain fewer than 2,000 frames with minimal diversity.
+Their work further shows that a custom thermal pipeline --- capturing three
+DJI UAV types at multiple altitudes with a 640$\times$512 LWIR sensor ---
+is necessary to achieve reliable thermal detection. This confirms that
+extending BirdDrone-2C-FT to the thermal modality requires a dedicated
+dataset acquisition effort beyond the scope of the current work.
+
+\section{The UAV Threat Landscape}
 
 The proliferation of consumer UAVs has transformed the threat landscape for
 airspace security. Coluccia et al.~\cite{coluccia2021sensors} document the
@@ -145,49 +222,152 @@ through the 2-class BirdDrone-2C-FT architecture, and extends the prior
 work by integrating detection into a distributed edge-computing pipeline
 with a centralised web-based control center.
 
-\section{Objectives}
+\section{Methodology Overview}
 
-\begin{enumerate}
-  \item Train a YOLO26s model for 2-class aerial object detection (Bird, Drone)
-        on curated RGB datasets with balanced class representation.
-  \item Fine-tune the model on the DUT Anti-UAV benchmark to improve real-world
-        detection continuity and reduce false positives.
-  \item Implement a distributed edge-computing inference pipeline with
-        MQTT communication, WebRTC live streaming, and PTZ camera control.
-  \item Develop a modern web-based control center with authentication
-        and real-time monitoring.
-\end{enumerate}
-
-\section{Scope and Limitations}
-
-\begin{itemize}
-  \item Training datasets are limited to publicly available RGB drone and
-        bird imagery (CC BY 4.0 and CC0 licenses).
-  \item Thermal infrared modality is identified as future work.
-  \item The DUT Anti-UAV evaluation uses proxy metrics (detection rate,
-        tracking gaps) since per-frame annotations are not available in
-        the tracking split.
-\end{itemize}
-
-The thermal infrared gap deserves specific mention. Delleji et al.~\cite{delleji2025thermal}
-demonstrate that existing public thermal datasets are inadequate for aerial
-drone detection: the FLIR ADAS dataset targets automotive scenes, the KAIST
-Multispectral dataset focuses on pedestrian detection, and available aerial
-thermal datasets contain fewer than 2,000 frames with minimal diversity.
-Their work further shows that a custom thermal pipeline --- capturing three
-DJI UAV types at multiple altitudes with a 640$\times$512 LWIR sensor ---
-is necessary to achieve reliable thermal detection. This confirms that
-extending BirdDrone-2C-FT to the thermal modality requires a dedicated
-dataset acquisition effort beyond the scope of the current work.
+The methodology follows four main stages. First, publicly available RGB
+datasets of birds and drones are curated and merged into a balanced
+6,808-image training set. Second, a YOLO26s model is trained from scratch
+on this dataset to produce the BirdDrone-2C base model. Third, the base
+model is fine-tuned on pseudo-labeled frames from the DUT Anti-UAV benchmark
+to produce the production model BirdDrone-2C-FT. Fourth, the model is
+integrated into a distributed edge-computing system with a web-based
+control center and evaluated on the DUT benchmark sequences. Full
+implementation details are provided in Chapter~3.
 
 \section{Report Structure}
 
-Chapter~2 reviews related work. Chapter~3 describes the full methodology.
-Chapter~4 presents training and evaluation results. Chapter~5 discusses the
-findings. Chapter~6 concludes with recommendations.
+Chapter~2 provides the theoretical background and literature review.
+Chapter~3 describes the full methodology including requirements, system
+framework, datasets, and implementation. Chapter~4 presents training and
+evaluation results. Chapter~5 discusses the findings. Chapter~6 concludes
+with deployment recommendations and future work.
 
 % ============================================================
 \chapter{Literature Review}
+
+\section*{Part I: Theoretical Background}
+\addcontentsline{toc}{section}{Part I: Theoretical Background}
+
+\section{Fundamental Concepts}
+
+\subsection{Object Detection and the YOLO Paradigm}
+
+Object detection is the computer vision task of simultaneously localising
+and classifying all objects of interest within an image. A detector outputs
+a set of bounding boxes, each described by its centre coordinates $(x, y)$,
+width $w$, height $h$, a class label, and a confidence score $p$.
+
+Single-stage detectors such as YOLO (You Only Look Once) perform detection
+in a single forward pass through a convolutional neural network, making them
+suitable for real-time applications. The network divides the input image into
+a grid and predicts bounding boxes and class probabilities directly from each
+grid cell. The key performance metric is mean Average Precision (mAP), defined
+as the area under the precision-recall curve averaged over all classes and
+IoU thresholds.
+
+\subsection{Transfer Learning}
+
+Transfer learning is the practice of initialising a model with weights
+pre-trained on a large dataset (e.g., COCO) and then fine-tuning it on a
+smaller domain-specific dataset. This approach is standard in aerial object
+detection because domain-specific datasets are typically small relative to
+the number of model parameters. The pre-trained backbone learns general
+visual features (edges, textures, shapes) that transfer well to new domains,
+while the detection head is adapted to the target class set.
+
+\subsection{Edge Computing for Real-Time Inference}
+
+Edge computing refers to the deployment of computation close to the data
+source, rather than in a centralised cloud. For UAV detection, edge
+deployment means running the YOLO inference engine on a device co-located
+with the camera (e.g., Raspberry Pi 4, NVIDIA Jetson Nano), reducing
+network latency and enabling operation in environments without reliable
+internet connectivity. The trade-off is limited computational resources:
+edge devices have constrained VRAM, CPU/GPU performance, and power budgets.
+
+\subsection{MQTT and Publish-Subscribe Communication}
+
+MQTT (Message Queuing Telemetry Transport) is a lightweight publish-subscribe
+messaging protocol designed for constrained devices and low-bandwidth networks.
+In the proposed system, each edge node publishes detection results to an MQTT
+broker; the control center subscribes to these topics and aggregates the
+results in real time. MQTT's low overhead makes it suitable for transmitting
+frequent detection messages (up to 25 per second per node) without saturating
+the network.
+
+\subsection{WebRTC for Live Video Streaming}
+
+WebRTC (Web Real-Time Communication) is an open standard for peer-to-peer
+audio and video communication directly in web browsers. It enables low-latency
+live video streaming from edge cameras to the control center without requiring
+a dedicated media server. The control center uses WebRTC to display live
+camera feeds alongside detection overlays.
+
+\section{Related Systems and Models}
+
+\subsection{Distributed Anti-UAV Detection Architectures}
+
+A distributed anti-UAV system consists of multiple sensor nodes (cameras,
+radars, or acoustic sensors) connected to a central command and control
+system. Vision-based distributed systems use cameras at each node, running
+local inference to reduce bandwidth requirements. The central system
+aggregates detections, maintains a common operational picture, and allows
+operators to task individual nodes (e.g., PTZ camera control).
+
+The two-tier architecture adopted in this project --- edge inference nodes
+communicating over MQTT to a web-based control center --- is consistent
+with the distributed paradigm described in the literature. Each tier has
+distinct responsibilities: the edge tier handles computationally intensive
+inference, while the control tier handles aggregation, visualisation, and
+operator interaction.
+
+\subsection{YOLO-Based Aerial Object Detectors}
+
+The YOLO family has been the dominant architecture for aerial object
+detection since YOLOv3. Key variants relevant to this work include:
+YOLOv5 (used in the KFUPM anti-UAV system), YOLOv8 (used in the
+Drone-vs-Bird challenge), and YOLO26 (used in this project). Each
+successive version improves small-object detection through architectural
+changes to the feature pyramid network and label assignment strategy.
+
+\section{Techniques, Methods, and Algorithms}
+
+\subsection{Pseudo-Label Fine-Tuning}
+
+Pseudo-labeling is a semi-supervised learning technique in which a trained
+model generates labels for unlabeled data, and these generated labels are
+used as training targets for a subsequent fine-tuning stage. In this project,
+the base BirdDrone-2C model generates bounding box annotations for frames
+in the DUT Anti-UAV tracking split (which lacks per-frame ground-truth
+annotations). Only frames where the model's confidence exceeds 0.70 are
+retained, ensuring label quality. The fine-tuned model is then trained on
+the combination of the original labeled data and the pseudo-labeled DUT frames.
+
+\subsection{Data Augmentation for Aerial Detection}
+
+Data augmentation artificially increases training set diversity by applying
+geometric and photometric transformations to existing images. For aerial
+object detection, the most effective augmentations are:
+\begin{itemize}
+  \item \textbf{Copy-paste}: Pastes object crops onto diverse backgrounds,
+        directly increasing background variety for small aerial targets.
+  \item \textbf{Rotation}: Simulates drones at arbitrary orientations.
+  \item \textbf{Vertical flip}: Simulates upward-facing camera perspectives.
+  \item \textbf{Mosaic}: Combines four images into one, increasing object
+        density and scale variety per training step.
+\end{itemize}
+
+\subsection{ByteTrack Multi-Object Tracking}
+
+ByteTrack is a multi-object tracking algorithm that associates detections
+across frames using the Hungarian algorithm with IoU-based cost matrices.
+Unlike trackers that discard low-confidence detections, ByteTrack retains
+them as secondary candidates, improving tracking continuity when the detector
+is momentarily uncertain. This is particularly valuable for small aerial
+targets that may produce low-confidence detections at long range.
+
+\section*{Part II: Literature Review}
+\addcontentsline{toc}{section}{Part II: Literature Review}
 
 \section{YOLO Model Family}
 
@@ -368,8 +548,195 @@ $W_{\text{bbox}}$ is the bounding box width in pixels, and $\theta_{\text{FOV}}$
 is the camera horizontal field of view. Trajectory estimation computes the
 mean frame-to-frame centroid displacement over a rolling window of $N$ frames.
 
+\section{Comparative Analysis of Previous Work}
+
+Table~\ref{tab:lit_compare} summarises the key prior systems reviewed in
+this chapter, comparing their detection approach, dataset, and reported
+performance.
+
+\begin{table}[H]
+\centering
+\caption{Comparative analysis of related anti-UAV detection systems.}
+\label{tab:lit_compare}
+\small
+\begin{tabular}{p{3.2cm}p{2.5cm}p{2.5cm}p{2.5cm}p{2.5cm}}
+\toprule
+\textbf{Work} & \textbf{Model} & \textbf{Dataset} & \textbf{Performance} & \textbf{Limitation} \\
+\midrule
+Munir~\cite{munir2023kfupm} (2023) & YOLO-RAW (YOLOv5 extension) & Anti-UAV + weather-augmented & 95.2\% mAP@0.5 (clean) & Single-class; no bird discrimination \\
+Coluccia et al.~\cite{coluccia2021sensors} (2021) & Various (challenge) & DvB Grand Challenge & F1 up to 0.91 & No distributed deployment \\
+Reis et al.~\cite{reis2024yolov8} (2024) & YOLOv8 (multi-size) & 15,064 flying objects & 99.1\% mAP@0.5 (3-class) & No bird class; no edge deployment \\
+Stäcker et al.~\cite{stacker2021} (2021) & RetinaNet-18 (TensorRT) & COCO + custom & 0.361 mAP (Int8) & Detection only; no control center \\
+Delleji et al.~\cite{delleji2025thermal} (2025) & YOLOv11 & Custom thermal & High precision/recall & Thermal only; no RGB \\
+\textbf{This work} & \textbf{YOLO26s (BirdDrone-2C-FT)} & \textbf{BirdDrone-2C + DUT} & \textbf{0.969 mAP@0.5} & \textbf{RGB only; no weather eval} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The comparative analysis reveals that existing systems address either the
+detection accuracy problem (Munir, Reis et al.) or the edge deployment
+problem (Stäcker et al.) but not both simultaneously. None of the reviewed
+systems provide a complete distributed architecture with a web-based control
+center and explicit bird/drone discrimination.
+
+\section{Research Gap and Project Contribution}
+
+The literature review identifies three gaps that the present project addresses:
+
+\textbf{Gap 1: Bird/drone discrimination in distributed systems.}
+Existing distributed anti-UAV systems use single-class drone detectors
+that do not distinguish between drones and birds. In environments with
+bird activity, this leads to high false alarm rates that reduce operator
+trust. This project addresses the gap by training a dedicated 2-class
+Bird/Drone model (BirdDrone-2C-FT) and integrating it into a distributed
+detection pipeline.
+
+\textbf{Gap 2: Real-world performance on complex backgrounds.}
+Published models are typically evaluated on clean benchmark datasets.
+Performance on real-world sequences with complex backgrounds (urban
+structures, tree canopies) is rarely reported. This project addresses
+the gap by fine-tuning on pseudo-labeled DUT Anti-UAV sequences and
+evaluating on all 20 DUT benchmark videos.
+
+\textbf{Gap 3: Centralised monitoring of distributed edge nodes.}
+No reviewed system provides a web-based control center for real-time
+monitoring and control of multiple distributed edge inference nodes.
+This project addresses the gap by developing a full-stack control center
+with JWT authentication, real-time detection dashboards, interactive maps,
+and WebRTC live video streaming.
+
+These three contributions directly connect to the project objectives stated
+in Chapter~1 and are fully implemented and evaluated in Chapters~3--5.
+
 % ============================================================
 \chapter{Methodology}
+
+\section{Chapter Overview}
+
+This chapter explains the methodology followed to achieve the engineering
+objectives of the project. It presents five main stages: (1) Requirements
+and specifications for the system, (2) Evaluation of possible design
+scenarios and justification of the chosen approach, (3) The overall system
+framework showing components and data flow, (4) Dataset description and
+preparation, and (5) Implementation details for the model training pipeline
+and the distributed control system. Each stage is explained in detail,
+along with justification of the engineering choices made.
+
+\section{Requirements and Specifications}
+
+Based on the problem analysis in Chapter~1, the following requirements were
+identified for the proposed system.
+
+\textbf{Functional Requirements:}
+\begin{itemize}
+  \item The system must detect and classify aerial objects (Bird or Drone)
+        in real time at a minimum of 10 frames per second on edge hardware.
+  \item The system must achieve a bird false alarm rate below 5\% to be
+        operationally viable in environments with bird activity.
+  \item The system must support multiple simultaneous edge nodes, each
+        publishing detection results to a central control center.
+  \item The control center must display live detection results, device
+        health status, and camera feeds in a web browser without requiring
+        additional software installation.
+  \item The system must support PTZ camera control from the control center
+        interface.
+  \item User authentication must be enforced via JWT tokens with invite-based
+        registration to prevent unauthorised access.
+\end{itemize}
+
+\textbf{Non-Functional Requirements:}
+\begin{itemize}
+  \item \textbf{Scalability}: The MQTT-based communication architecture must
+        support adding new edge nodes without modifying the control center.
+  \item \textbf{Portability}: The detection model must be deployable on
+        Raspberry Pi 4 and NVIDIA Jetson Nano without hardware-specific
+        modifications.
+  \item \textbf{Reproducibility}: All training datasets must be publicly
+        available under open licenses (CC BY 4.0 or CC0).
+  \item \textbf{Accuracy}: The production model must achieve mAP@0.5 $\geq$
+        0.90 on the combined validation set.
+  \item \textbf{Latency}: End-to-end detection-to-display latency must be
+        below 500 ms under normal network conditions.
+\end{itemize}
+
+\section{Possible Scenarios}
+
+For the core detection model, several architectural options were considered:
+
+\textbf{Option 1: Single-class drone detector.}
+Train a model to detect only drones, ignoring birds entirely.
+\begin{itemize}
+  \item Advantages: Simpler training; more drone training data available.
+  \item Disadvantages: High false alarm rate in environments with birds;
+        does not address the primary operational challenge.
+\end{itemize}
+
+\textbf{Option 2: Multi-class detector (Bird, Drone, Plane, Helicopter).}
+Train a model with a fine-grained taxonomy of aerial objects.
+\begin{itemize}
+  \item Advantages: More informative output for operators.
+  \item Disadvantages: Insufficient training data for minority classes
+        (helicopter, plane); annotation ambiguity between drone subtypes
+        reduces per-class data quality.
+\end{itemize}
+
+\textbf{Option 3: 2-class Bird/Drone detector (the proposed approach).}
+Train a model with exactly two classes: Bird (confuser) and Drone (threat).
+\begin{itemize}
+  \item Advantages: Directly addresses the primary operational challenge;
+        maximises training data for both classes; avoids annotation ambiguity.
+  \item Disadvantages: Does not distinguish between drone subtypes.
+\end{itemize}
+
+Option 3 was chosen because previous studies~\cite{coluccia2021sensors,munir2023kfupm}
+confirm that bird/drone discrimination is the defining challenge of aerial
+detection systems, and that collapsing drone subtypes into a single class
+is necessary to accumulate sufficient training data for robust detection.
+
+For the fine-tuning strategy, pseudo-label fine-tuning on the DUT Anti-UAV
+benchmark was chosen over manual annotation because the DUT tracking split
+contains 24,804 frames --- a volume that would require prohibitive manual
+annotation effort. The 0.70 confidence threshold ensures pseudo-label quality
+by excluding frames where the base model is uncertain.
+
+\section{System Framework}
+
+Figure~\ref{fig:system_arch} illustrates the overall framework of the
+proposed system. The system is divided into two tiers: the Edge Tier and
+the Control Tier.
+
+\textbf{Edge Tier:} Each edge node consists of a camera connected to an
+edge computing device (Raspberry Pi 4 or NVIDIA Jetson Nano). The edge
+device runs the YOLO26s inference engine on the local camera feed, producing
+bounding box detections at up to 25 fps. Detection results (class, confidence,
+bounding box coordinates, timestamp) are published over MQTT to the central
+broker. The edge device also streams live video to the control center via
+WebRTC and accepts PTZ camera control commands from the control center.
+
+\textbf{Control Tier:} The control center is a web application accessible
+from any browser. It subscribes to MQTT detection topics from all connected
+edge nodes, aggregates the results, and displays them on a real-time
+dashboard with per-class colour coding. An interactive map shows the
+geographic location of each edge node with a slide-in panel displaying
+its current detection status. JWT-based authentication with invite-token
+registration controls access to the control center.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/system_arch.png}
+\caption{System architecture overview. Edge nodes run YOLO26s inference
+locally and publish results over MQTT to the control center. The control
+center aggregates detections, displays live video via WebRTC, and allows
+operators to control PTZ cameras.}
+\label{fig:system_arch}
+\end{figure}
+
+The data flow is as follows: camera frames are captured at the edge device,
+passed through the YOLO26s inference engine, and the resulting detections
+are serialised as JSON and published to the MQTT broker. The control center
+receives these messages, updates the detection dashboard, and optionally
+triggers PTZ camera commands based on operator input or automated tracking
+rules.
 
 \section{Canonical Class Taxonomy}
 
@@ -632,6 +999,52 @@ video12 & 687--939  & 10.1s & UAV left frame + tracking loss \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\section{Evaluation Plan}
+
+The system will be evaluated using the following metrics and procedures to
+demonstrate that it meets the requirements defined in Section~3.2.
+
+\textbf{Model accuracy evaluation:}
+The production model BirdDrone-2C-FT is evaluated on three independent
+test sets not used during training or fine-tuning:
+\begin{itemize}
+  \item Anti-UAV test split (1,659 images): measures drone detection accuracy.
+  \item Birds.v1i validation split (378 images): measures bird classification
+        accuracy and false alarm rate.
+  \item UAVDetector test split (165 images, fixed-wing): measures
+        generalisation to unseen drone types.
+\end{itemize}
+The primary metric is mAP@0.5. The bird false alarm rate (fraction of bird
+images misclassified as Drone) is reported separately as the key operational
+metric.
+
+\textbf{Real-world benchmark evaluation:}
+The model is evaluated on all 20 videos of the DUT Anti-UAV benchmark
+using the proxy metrics defined in Section~3.8 (Detection Rate, Tracking
+Gaps, False-Class Detections, Low-Confidence FP). Results are compared
+against the published DUT baselines (YOLOX: 0.720, Cascade-RCNN: 0.680).
+
+\textbf{Comparison with baseline:}
+All metrics are reported for both the base model (BirdDrone-2C) and the
+fine-tuned model (BirdDrone-2C-FT) to quantify the improvement from
+fine-tuning. The fine-tuned model is accepted as the production model
+if it improves or maintains all metrics relative to the base model.
+
+\section{Chapter Summary}
+
+This chapter presented the complete methodology for the AI Multi-Agent
+Anti-UAV Detection System. The requirements and specifications define
+the functional and non-functional criteria the system must meet. The
+scenario analysis justifies the choice of a 2-class Bird/Drone detector
+over single-class and multi-class alternatives. The system framework
+describes the two-tier edge/control architecture and the data flow
+between components. The dataset sections document the curated training
+data and the pseudo-label fine-tuning procedure. The training configuration
+sections specify the hyperparameters and augmentation strategies for both
+the base model and the fine-tuned model. The evaluation plan defines the
+metrics and procedures used to assess system performance. Chapter~4
+presents the results of applying this methodology.
 
 % ============================================================
 \chapter{Results}
