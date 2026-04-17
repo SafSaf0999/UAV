@@ -565,17 +565,22 @@ performance.
 \caption{Comparative analysis of related anti-UAV detection systems.}
 \label{tab:lit_compare}
 \small
-\begin{tabular}{|p{2.8cm}|p{2.2cm}|p{2.2cm}|p{2.2cm}|p{2.2cm}|}
+\begin{tabular}{|p{3.0cm}|p{2.4cm}|p{2.4cm}|p{2.4cm}|p{2.4cm}|}
 \hline
 \textbf{Work} & \textbf{Model} & \textbf{Dataset} & \textbf{Performance} & \textbf{Limitation} \\
 \hline
 Munir~\cite{munir2023kfupm} (2023) & YOLO-RAW (YOLOv5 extension) & Anti-UAV + weather-augmented & 95.2\% mAP@0.5 (clean) & Single-class; no bird discrimination \\
+\hline
 Coluccia et al.~\cite{coluccia2021sensors} (2021) & Various (challenge) & DvB Grand Challenge & F1 up to 0.91 & No distributed deployment \\
+\hline
 Reis et al.~\cite{reis2024yolov8} (2024) & YOLOv8 (multi-size) & 15,064 flying objects & 99.1\% mAP@0.5 (3-class) & No bird class; no edge deployment \\
+\hline
 Stäcker et al.~\cite{stacker2021} (2021) & RetinaNet-18 (TensorRT) & COCO + custom & 0.361 mAP (Int8) & Detection only; no control center \\
+\hline
 Delleji et al.~\cite{delleji2025thermal} (2025) & YOLOv11 & Custom thermal & High precision/recall & Thermal only; no RGB \\
+\hline
 \textbf{This work} & \textbf{YOLO26s (BirdDrone-2C-FT)} & \textbf{BirdDrone-2C + DUT} & \textbf{0.969 mAP@0.5} & \textbf{RGB only; no weather eval} \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -751,13 +756,14 @@ BirdDrone-2C-FT uses a 2-class taxonomy:
 \begin{table}[H]
 \centering
 \caption{Canonical class taxonomy for BirdDrone-2C-FT.}
-\begin{tabular}{lll}
-\toprule
+\begin{tabular}{|l|l|p{7cm}|}
+\hline
 \textbf{Class} & \textbf{Index} & \textbf{Description} \\
 \hline
 Bird  & 0 & Birds --- confuser class, not a threat \\
+\hline
 Drone & 1 & All aerial vehicles: consumer drones, quadcopters, fixed-wing UAVs \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -787,14 +793,16 @@ All training datasets are licensed under CC BY 4.0 or CC0.
 \centering
 \caption{Source datasets used for BirdDrone-2C base training.}
 \label{tab:sources}
-\begin{tabular}{llccc}
-\toprule
+\begin{tabular}{|l|l|c|c|c|}
+\hline
 \textbf{Dataset} & \textbf{Source} & \textbf{License} & \textbf{Images} & \textbf{Class} \\
 \hline
 Birds.v1i.yolov8~\cite{birds_roboflow}   & Roboflow Universe & CC BY 4.0 & 3,404 & Bird \\
+\hline
 fixed-wing-uav~\cite{fixedwing_kaggle}   & Kaggle (nyahmet)  & CC0       & 554   & Drone \\
+\hline
 anti-uav~\cite{antiuav_roboflow}         & Roboflow Universe & CC BY 4.0 & 2,850* & Drone \\
-\bottomrule
+\hline
 \multicolumn{5}{l}{\small *Capped from 19,849 to maintain class balance}
 \end{tabular}
 \end{table}
@@ -836,12 +844,12 @@ only frames with confident detections were retained as training samples.
 \begin{table}[H]
 \centering
 \caption{Pseudo-label annotation yield and fine-tuning dataset size.}
-\begin{tabular}{lccc}
-\toprule
+\begin{tabular}{|l|c|c|p{5cm}|}
+\hline
 \textbf{Base Model} & \textbf{Annotated frames} & \textbf{Yield} & \textbf{Total fine-tune train set} \\
 \hline
 BirdDrone-2C & 11,345 & 45.7\% & 13,984 (original 4,901 + 9,083 DUT) \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -873,23 +881,34 @@ YOLO26s was selected over larger variants for the following reasons:
 \begin{table}[H]
 \centering
 \caption{BirdDrone-2C base training hyperparameters.}
-\begin{tabular}{ll}
-\toprule
+\begin{tabular}{|l|l|}
+\hline
 \textbf{Parameter} & \textbf{Value} \\
 \hline
 Epochs       & 100 \\
+\hline
 Batch size   & 16 \\
+\hline
 Image size   & 640 \\
+\hline
 Optimizer    & SGD \\
+\hline
 lr0          & 0.01 \\
+\hline
 Patience     & 30 \\
+\hline
 copy\_paste  & 0.6 \\
+\hline
 mixup        & 0.0 \\
+\hline
 degrees      & 20.0 \\
+\hline
 flipud       & 0.3 \\
+\hline
 Hardware     & Local training \\
+\hline
 Duration     & 4.17 hours \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -936,24 +955,36 @@ comparable to domain-randomisation augmentation.
 \begin{table}[H]
 \centering
 \caption{BirdDrone-2C-FT fine-tuning hyperparameters.}
-\begin{tabular}{ll}
-\toprule
+\begin{tabular}{|l|l|}
+\hline
 \textbf{Parameter} & \textbf{Value} \\
 \hline
 Base weights & BirdDrone-2C best.pt \\
+\hline
 Epochs       & 20 (early stopping at epoch 11) \\
+\hline
 Batch size   & 16 \\
+\hline
 Image size   & 640 \\
+\hline
 Optimizer    & SGD \\
+\hline
 lr0          & 0.001 \\
+\hline
 Patience     & 8 \\
+\hline
 copy\_paste  & 0.6 \\
+\hline
 mixup        & 0.0 \\
+\hline
 degrees      & 20.0 \\
+\hline
 flipud       & 0.3 \\
+\hline
 Hardware     & Local training \\
+\hline
 Duration     & $\sim$0.5 hours \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -1098,14 +1129,16 @@ large gaps correspond to the UAV genuinely leaving the camera field of view
 \caption{Confirmed out-of-frame gaps (verified by visual inspection).}
 \label{tab:oof}
 \small
-\begin{tabular}{llccc}
-\toprule
+\begin{tabular}{|l|l|c|c|}
+\hline
 \textbf{Video} & \textbf{Frames} & \textbf{Duration} & \textbf{Cause} \\
 \hline
 video07 & 423--580  & 6.3s  & UAV left frame \\
+\hline
 video09 & 537--1042 & 20.2s & UAV left frame \\
+\hline
 video12 & 687--939  & 10.1s & UAV left frame + tracking loss \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -1222,15 +1255,16 @@ which are noisier than the manually annotated base training data.
 \caption{BirdDrone-2C-FT validation metrics on the combined val set
 (original BirdDrone-2C val + DUT pseudo-labeled val frames).}
 \label{tab:val_ft}
-\begin{tabular}{lcccc}
-\toprule
+\begin{tabular}{|l|c|c|c|c|}
+\hline
 \textbf{Model} & \textbf{mAP@0.5} & \textbf{mAP@0.5:0.95} & \textbf{Precision} & \textbf{Recall} \\
 \hline
 BirdDrone-2C (base) & 0.926 & 0.554 & 0.942 & 0.873 \\
+\hline
 \textbf{BirdDrone-2C-FT} & \textbf{0.969} & \textbf{0.678} & \textbf{0.961} & \textbf{0.934} \\
 \hline
 Improvement & +0.043 & +0.124 & +0.019 & +0.061 \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -1260,14 +1294,16 @@ tracking (which uses the bounding box centre as the tracking target).
 \centering
 \caption{BirdDrone-2C-FT cross-dataset evaluation on independent test splits.}
 \label{tab:cross}
-\begin{tabular}{lcc}
-\toprule
+\begin{tabular}{|l|c|c|}
+\hline
 \textbf{Test Set} & \textbf{BirdDrone-2C (base)} & \textbf{BirdDrone-2C-FT} \\
 \hline
 Anti-UAV test (1,659 img, UAV)         & 0.934 & 0.929 ($-$0.005) \\
+\hline
 UAVDetector test (165 img, fixed-wing) & 0.273 & \textbf{0.341} ($+$0.069) \\
+\hline
 Birds.v1i valid (378 img, Bird)        & 0.973 & 0.972 ($-$0.001) \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -1302,13 +1338,14 @@ or DUT datasets.
 \centering
 \caption{Bird classification accuracy on Birds.v1i valid split (378 images).}
 \label{tab:bird_fp}
-\begin{tabular}{lccc}
-\toprule
+\begin{tabular}{|l|c|c|c|}
+\hline
 \textbf{Model} & \textbf{Correct (Bird)} & \textbf{False alarm (Bird$\to$Drone)} & \textbf{Missed} \\
 \hline
 BirdDrone-2C (base) & 362 (95.8\%) & 1 (0.3\%) & 24 \\
+\hline
 \textbf{BirdDrone-2C-FT} & \textbf{364 (96.3\%)} & \textbf{1 (0.3\%)} & \textbf{17} \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -1361,18 +1398,24 @@ background types, teaches the model to suppress these uncertain activations.
 \centering
 \caption{BirdDrone-2C-FT aggregate performance on DUT Anti-UAV (20 videos).}
 \label{tab:dut_agg}
-\begin{tabular}{lcc}
-\toprule
+\begin{tabular}{|l|c|c|}
+\hline
 \textbf{Metric} & \textbf{BirdDrone-2C (base)} & \textbf{BirdDrone-2C-FT} \\
 \hline
 Avg Detection Rate    & 0.808 & \textbf{0.818} \\
+\hline
 Avg Confidence        & 0.671 & \textbf{0.790} \\
+\hline
 First-frame TP Rate   & 0.850 & \textbf{0.850} \\
+\hline
 False-Class Detections & 159  & \textbf{65} \\
+\hline
 Low-Confidence FP     & 2,549 & \textbf{1,154} \\
+\hline
 Tracking Gaps         & 199   & \textbf{131} \\
+\hline
 Total Missed Frames   & 6,164 & \textbf{5,704} \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -1435,41 +1478,59 @@ the 20 videos (at 25 fps).
 
 \subsection{Per-Video Results}
 
-\begin{longtable}{lcccccc}
-\caption{Per-video DUT results: BirdDrone-2C base vs BirdDrone-2C-FT.}\\
-\toprule
+\begin{table}[H]
+\centering
+\caption{Per-video DUT results: BirdDrone-2C base vs BirdDrone-2C-FT.}
+\label{tab:per_video}
+\small
+\begin{tabular}{|l|c|c|c|c|c|c|}
+\hline
 \textbf{Video} & \textbf{Base DR} & \textbf{FT DR} & \textbf{$\Delta$ DR} & \textbf{Base Gaps} & \textbf{FT Gaps} & \textbf{FT Conf} \\
 \hline
-\endfirsthead
-\multicolumn{7}{c}{\tablename\ -- continued}\\
-\toprule
-\textbf{Video} & \textbf{Base DR} & \textbf{FT DR} & \textbf{$\Delta$ DR} & \textbf{Base Gaps} & \textbf{FT Gaps} & \textbf{FT Conf} \\
-\hline
-\endhead
 video01 & 0.824 & 0.855 & +0.031 & 5  & 5  & high \\
+\hline
 video02 & 0.879 & 1.000 & +0.121 & 0  & 0  & high \\
+\hline
 video03 & 0.970 & 1.000 & +0.030 & 0  & 0  & high \\
+\hline
 video04 & 0.994 & 0.991 & $-$0.003 & 0  & 0  & high \\
+\hline
 video05 & 0.951 & 0.944 & $-$0.007 & 1  & 1  & high \\
+\hline
 video06 & 1.000 & 1.000 & +0.000 & 0  & 0  & high \\
+\hline
 video07 & 0.712 & 0.757 & +0.046 & 12 & 11 & med \\
+\hline
 video08 & 0.883 & 0.898 & +0.016 & 5  & 5  & high \\
+\hline
 video09 & 0.606 & 0.650 & +0.045 & 5  & 3  & med \\
+\hline
 video10 & 0.694 & 0.846 & +0.152 & 31 & 8  & high \\
+\hline
 video11 & 0.982 & 0.979 & $-$0.003 & 0  & 0  & high \\
+\hline
 video12 & 0.663 & 0.666 & +0.003 & 5  & 5  & med \\
+\hline
 video13 & 0.488 & 0.625 & +0.136 & 43 & 28 & med \\
+\hline
 video14 & 0.827 & 0.831 & +0.003 & 7  & 5  & high \\
+\hline
 video15 & 0.641 & 0.847 & +0.206 & 22 & 7  & high \\
+\hline
 video16 & 0.746 & 0.279 & $-$0.468 & 21 & 7  & low \\
+\hline
 video17 & 0.550 & 0.606 & +0.056 & 21 & 17 & med \\
+\hline
 video18 & 0.958 & 0.956 & $-$0.002 & 2  & 1  & high \\
+\hline
 video19 & 0.995 & 0.850 & $-$0.145 & 0  & 8  & high \\
+\hline
 video20 & 0.793 & 0.769 & $-$0.024 & 19 & 20 & high \\
 \hline
 \textbf{Average} & \textbf{0.808} & \textbf{0.818} & \textbf{+0.010} & \textbf{199} & \textbf{131} & \\
-\bottomrule
-\end{longtable}
+\hline
+\end{tabular}
+\end{table}
 
 The fine-tuned model improves detection rate on 13 out of 20 videos and
 reduces tracking gaps on 12 out of 20 videos. The results can be grouped
