@@ -719,7 +719,14 @@ Published models are typically evaluated on clean benchmark datasets.
 Performance on real-world sequences with complex backgrounds (urban
 structures, tree canopies) is rarely reported. This project addresses
 the gap by fine-tuning on pseudo-labeled DUT Anti-UAV sequences and
-evaluating on all 20 DUT benchmark videos.
+evaluating on all 20 DUT benchmark videos. It is worth noting that
+even after fine-tuning, the model still struggles with urban building
+backgrounds: video10 (31 tracking gaps in the base model, reduced to 8
+after fine-tuning) and video13 (43 gaps reduced to 28) demonstrate that
+building edges and window patterns continue to cause intermittent tracking
+loss. This residual weakness is documented in the Limitations section and
+addressed in the short-term future work as a target for weather and
+background augmentation.
 
 \textbf{Gap 3: Centralised monitoring of distributed edge nodes.}
 No reviewed system provides a web-based control center for real-time
@@ -2094,8 +2101,8 @@ the commands to the IP Webcam HTTP API. Available controls include:
   \item \textbf{Stream}: zoom slider (0--100), video resolution dropdown
         (populated from the phone's supported resolutions), and JPEG quality
         slider.
-  \item \textbf{Camera}: torch (flashlight) toggle, front/back camera toggle,
-        night vision mode toggle, and timestamp overlay toggle.
+  \item \textbf{Camera}: front/back camera toggle, night vision mode
+        toggle, and timestamp overlay toggle.
   \item \textbf{Focus}: focus mode dropdown (auto, macro, infinity, fixed)
         and a manual focus trigger button.
   \item \textbf{Exposure}: manual sensor mode toggle, ISO sensitivity slider,
@@ -2234,6 +2241,13 @@ The four specific objectives stated in Chapter~1 have been fully achieved:
         remain partially unexplained; visual inspection suggests
         background-specific sensitivity changes but a definitive cause
         has not been identified.
+  \item Urban building backgrounds remain a persistent source of tracking
+        loss even after fine-tuning. Building edges and window patterns
+        produce false activations that interrupt track continuity. Videos
+        with dense urban backgrounds (video10, video13) still show elevated
+        gap counts (8 and 28 respectively) compared to sequences with
+        simpler backgrounds. Dedicated hard-negative mining on urban
+        background frames is identified as a short-term improvement target.
 \end{itemize}
 
 \section{Deployment Recommendations}
@@ -2257,6 +2271,10 @@ The four specific objectives stated in Chapter~1 have been fully achieved:
 \subsection{Short-Term Extensions (1--2 Years)}
 
 \begin{itemize}
+  \item \textbf{Urban background robustness}: Apply hard-negative mining
+        on urban building frames to reduce false activations from building
+        edges and window patterns, targeting the residual tracking gaps
+        observed in video10 and video13.
   \item \textbf{Weather robustness}: Retrain with weather-augmented data
         (rain, noise, motion blur) following the ACBD strategy of
         Munir et al.~\cite{munir2023kfupm}, which recovered torrential
