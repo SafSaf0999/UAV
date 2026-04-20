@@ -169,15 +169,21 @@ embedded systems in the following ways:
 
 \section{Project Objectives}
 
+The general objective of this project is to design, implement, and evaluate
+an AI-powered distributed anti-UAV detection system capable of real-time
+bird/drone discrimination on edge hardware with centralised web-based monitoring.
+
+The specific objectives are:
+
 \begin{enumerate}
-  \item Train a YOLO26s model for 2-class aerial object detection (Bird, Drone)
-        on curated RGB datasets with balanced class representation.
-  \item Fine-tune the model on the DUT Anti-UAV benchmark to improve real-world
-        detection continuity and reduce false positives.
+  \item Design and implement a 2-class aerial object detection model (Bird, Drone)
+        using YOLO26s, trained on curated RGB datasets with balanced class representation.
+  \item Design and implement a pseudo-label fine-tuning pipeline on the DUT Anti-UAV
+        benchmark to improve real-world detection continuity and reduce false positives.
   \item Implement a distributed edge-computing inference pipeline with
         MQTT communication, WebRTC live streaming, and PTZ camera control.
-  \item Develop a modern web-based control center with JWT authentication
-        and real-time monitoring.
+  \item Design and implement a web-based control center with JWT authentication,
+        real-time monitoring, and multi-device management.
 \end{enumerate}
 
 \section{Scope and Limitations}
@@ -204,41 +210,11 @@ is necessary to achieve reliable thermal detection. This confirms that
 extending BirdDrone-2C-FT to the thermal modality requires a dedicated
 dataset acquisition effort beyond the scope of the current work.
 
-\section{The UAV Threat Landscape}
-
-The proliferation of consumer UAVs has transformed the threat landscape for
-airspace security. Coluccia et al.~\cite{coluccia2021sensors} document the
-scale of the challenge through the Drone vs.\ Bird Detection Grand Challenge
-(3rd edition, 2020), which attracted 108 research groups globally and
-evaluated detectors against 8 distinct drone types --- fixed-wing and
-rotary-wing --- across varying backgrounds, weather conditions, and camera
-motion profiles. The challenge dataset reveals that drone bounding boxes
-range from as few as 15 px\textsuperscript{2} to over 1,000,000 px\textsuperscript{2},
-with the majority below 322 px\textsuperscript{2}, making scale variance
-the dominant difficulty factor for any vision-based detector.
-
-A comparable distributed anti-UAV system is described by Munir~\cite{munir2023kfupm},
-who develops a vision-based multi-scale UAV detector at KFUPM and provides
-the first systematic benchmark of UAV detection under adverse weather
-conditions (rain, Gaussian noise, and motion blur). That work identifies
-fundamental limitations of vision-based detection: effective range below
-350 ft, susceptibility to bird confusion, and sensitivity to illumination
-changes. The present system addresses the bird confusion problem directly
-through the 2-class BirdDrone-2C-FT architecture, and extends the prior
-work by integrating detection into a distributed edge-computing pipeline
-with a centralised web-based control center.
-
 \section{Methodology Overview}
 
-The methodology follows four main stages. First, publicly available RGB
-datasets of birds and drones are curated and merged into a balanced
-6,808-image training set. Second, a YOLO26s model is trained from scratch
-on this dataset to produce the BirdDrone-2C base model. Third, the base
-model is fine-tuned on pseudo-labeled frames from the DUT Anti-UAV benchmark
-to produce the production model BirdDrone-2C-FT. Fourth, the model is
-integrated into a distributed edge-computing system with a web-based
-control center and evaluated on the DUT benchmark sequences. Full
-implementation details are provided in Chapter~3.
+The methodology follows four main stages: dataset curation and preparation,
+model training and fine-tuning, system implementation, and performance
+evaluation. Full implementation details are provided in Chapter~3.
 
 \section{Report Structure}
 
@@ -589,6 +565,97 @@ detection accuracy problem (Munir, Reis et al.) or the edge deployment
 problem (Stäcker et al.) but not both simultaneously. None of the reviewed
 systems provide a complete distributed architecture with a web-based control
 center and explicit bird/drone discrimination.
+
+\section{Multi-Object Tracking for Aerial Surveillance}
+
+Accurate multi-object tracking is essential for maintaining persistent
+identity across frames in a UAV detection system. The ByteTrack
+algorithm~\cite{zhang2022bytetrack} addresses a fundamental weakness of
+prior trackers: the discarding of low-confidence detections. ByteTrack
+retains all detections --- including those below the confidence threshold
+--- as secondary candidates and associates them with existing tracks using
+IoU-based cost matrices and the Hungarian algorithm. This approach
+significantly reduces identity switches and tracking gaps compared to
+methods that discard uncertain detections entirely.
+
+A comparative evaluation of ByteTrack, DeepSORT, and StrongSORT on
+UAV-based video surveillance~\cite{bytetrack_comparison} demonstrates
+that ByteTrack achieves the best balance of tracking accuracy and
+computational efficiency for aerial surveillance applications. DeepSORT
+relies on a deep appearance model (re-identification network) that adds
+significant computational overhead unsuitable for edge deployment.
+StrongSORT improves on DeepSORT with enhanced appearance features but
+similarly requires more computation than ByteTrack. For the distributed
+anti-UAV system, ByteTrack's lightweight design and superior handling of
+low-confidence detections make it the preferred tracking algorithm,
+particularly for small aerial targets that frequently produce uncertain
+detections at long range.
+
+\section{UAS Threat Landscape and Defense Frameworks}
+
+The threat posed by unmanned aerial systems (UAS) to critical infrastructure
+and public safety has been extensively documented. Wallace and
+Loffi~\cite{wallace2015uas} provide a comprehensive conceptual analysis
+of UAS threats and defenses, cataloguing seven categories of illicit UAS
+use: nuisance, surveillance/reconnaissance, airspace interference,
+kinetic/kamikaze attacks, payload/smuggling, weaponized platforms, and
+electronic attack. Real-world incidents documented in their analysis include
+a foiled 2011 FBI plot involving RC aircraft packed with explosives targeting
+the Pentagon, and a hexicopter carrying methamphetamines intercepted near
+the US--Mexico border in 2015.
+
+The paper synthesises 39 unique UAS defense concepts into a five-layer
+``Defense in Depth'' model: Prevention, Deterrence, Denial, Detection, and
+Interruption/Destruction. Automated visual detection occupies the critical
+Detection layer that enables all subsequent active responses. Miasnikov~\cite{miasnikov2005uav}
+further establishes that conventional radar systems and surface-to-air
+missiles are poorly suited to detecting small, slow, low-altitude
+propeller-driven UAVs due to their small radar cross-sections and the
+clutter-filtering algorithms that discard slow-moving objects. This gap
+in traditional air defense directly motivates the need for dedicated
+vision-based detection systems such as the one described in this report.
+
+\section{Edge Computing for Distributed IoT Systems}
+
+The deployment of AI inference on distributed edge nodes is a well-established
+paradigm in the IoT literature. Kong et al.~\cite{kong2022edge} survey
+edge-computing-driven IoT architectures and establish that cloud-based
+processing introduces three critical bottlenecks for real-time applications:
+long-haul network latency, bandwidth saturation from concurrent data streams,
+and privacy risks from transmitting sensitive sensor data to remote servers.
+The three-layer ECDriven-IoT architecture (endpoint devices $\to$ edge nodes
+$\to$ cloud) maps directly onto the anti-UAV system's architecture: camera
+nodes (endpoints) $\to$ Raspberry Pi/Jetson edge nodes $\to$ central control
+server.
+
+The survey identifies computation offloading and workload allocation as
+primary design challenges: if IoT devices offload all computation to edge
+servers, communication cost and edge node capacity become bottlenecks; if
+devices process locally, power consumption increases. For the anti-UAV
+system, this trade-off is resolved by running YOLO26s inference entirely
+on the edge node (eliminating network latency for detection) while
+offloading aggregation, visualisation, and storage to the central control
+server.
+
+\section{WebRTC for Real-Time Video Streaming}
+
+WebRTC (Web Real-Time Communication) is the streaming protocol used in
+this system for live camera feeds from edge nodes to the control center.
+Mahmoud and Abozariba~\cite{mahmoud2025webrtc} conduct a systematic review
+of 83 WebRTC studies and establish that WebRTC's peer-to-peer architecture
+--- using SRTP for media encryption and DTLS for data channel security ---
+eliminates the need for an intermediary media relay server in most
+deployments, enabling sub-second latency streaming with mandatory
+end-to-end encryption.
+
+The review identifies NAT traversal and network congestion as the primary
+reliability challenges for WebRTC in distributed deployments. STUN/TURN/ICE
+solutions mitigate but do not eliminate these issues under high network
+congestion. For the anti-UAV system, edge nodes behind NAT on a private
+LAN require a TURN relay server as fallback, adding latency and
+infrastructure cost. The signaling server in the proposed architecture
+handles SDP offer/answer and ICE candidate exchange, while video flows
+directly peer-to-peer between the edge device and the browser client.
 
 \section{Research Gap and Project Contribution}
 
@@ -2134,6 +2201,43 @@ for Ground-to-Air Surveillance,''
 in \textit{Transfer Learning -- Unlocking the Power of Pretrained Models},
 IntechOpen, 2025.
 \url{https://doi.org/10.5772/intechopen.1011701}
+
+\bibitem{zhang2022bytetrack}
+Y.\ Zhang, P.\ Sun, Y.\ Jiang, D.\ Yu, F.\ Weng, Z.\ Yuan, P.\ Luo, W.\ Liu, X.\ Wang,
+``ByteTrack: Multi-Object Tracking by Associating Every Detection Box,''
+\textit{European Conference on Computer Vision (ECCV)}, 2022.
+\url{https://arxiv.org/abs/2110.06864}
+
+\bibitem{bytetrack_comparison}
+``Comparative Analysis of DeepSORT, ByteTrack and StrongSORT Algorithms
+for Multi-Object Tracking in UAV-Based Video Surveillance,''
+\textit{Journal of Imaging}, 2023.
+
+\bibitem{wallace2015uas}
+R.\ J.\ Wallace, J.\ M.\ Loffi,
+``Examining Unmanned Aerial System Threats \& Defenses: A Conceptual Analysis,''
+\textit{International Journal of Aviation, Aeronautics, and Aerospace},
+vol.\ 2, no.\ 4, 2015.
+\url{https://doi.org/10.15394/ijaaa.2015.1084}
+
+\bibitem{miasnikov2005uav}
+E.\ Miasnikov,
+``Threat of Terrorism Using Unmanned Aerial Vehicles: Technical Aspects,''
+Center for Arms Control, Energy and Environmental Studies,
+Moscow Institute of Physics and Technology, 2005.
+
+\bibitem{kong2022edge}
+L.\ Kong, J.\ Tan, J.\ Huang, G.\ Chen, S.\ Wang, X.\ Jin, P.\ Zeng, M.\ Khan, S.\ K.\ Das,
+``Edge-computing-driven Internet of Things: A Survey,''
+\textit{ACM Computing Surveys}, vol.\ 55, no.\ 8, pp.\ 174:1--174:41, 2022.
+\url{https://doi.org/10.1145/3555308}
+
+\bibitem{mahmoud2025webrtc}
+H.\ Mahmoud, R.\ Abozariba,
+``A systematic review on {WebRTC} for potential applications and
+challenges beyond audio video streaming,''
+\textit{Multimedia Tools and Applications}, vol.\ 84, pp.\ 2909--2946, 2025.
+\url{https://doi.org/10.1007/s11042-024-20448-9}
 
 \end{thebibliography}
 
