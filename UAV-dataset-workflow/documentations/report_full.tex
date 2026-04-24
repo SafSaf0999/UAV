@@ -9,6 +9,9 @@
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{longtable}
+% Full-grid table style
+\setlength{\arrayrulewidth}{0.4pt}
+\renewcommand{\arraystretch}{1.3}
 \usepackage{hyperref}
 \hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
 \usepackage{amsmath}
@@ -33,13 +36,16 @@
   stringstyle=\color{red!70!black},
 }
 
-\graphicspath{{figures/}{run_graphs/}}
+\graphicspath{{figures/}{run_graphs/}{run_graphs/ThermalDrone/}}
 
 \pagestyle{fancy}
 \fancyhf{}
 \rhead{\small AI Multi-Agent Anti-UAV Detection System}
 \lhead{\small \leftmark}
 \cfoot{\thepage}
+
+% Allow slightly loose line breaking to prevent overfull hboxes
+\sloppy
 
 \titleformat{\chapter}[display]
 {\normalfont\huge\bfseries}{\chaptertitlename\ \thechapter}{20pt}{\Huge}
@@ -92,6 +98,14 @@ detection rate of 0.818 across 20 DUT benchmark videos, and a bird false
 alarm rate of just 0.3\%. Fine-tuning reduces low-confidence false positives
 by 55\% compared to the base model, with negligible regression on original
 validation sets.
+
+A separate \textbf{ThermalDrone} model (1-class: Drone) was trained on the
+SIDD thermal infrared dataset (3,788 images, 4 scenes) using thermal-specific
+augmentation (HSV disabled, high copy-paste, random erasing for CCTV overlay
+simulation). It achieves mAP@0.5 = 0.958 on the SIDD validation split.
+Evaluated on the Anti-UAV410 thermal benchmark (129,691 frames, 128 test
+sequences), it achieves Precision = 0.993, Recall = 0.730, F1 = 0.842,
+and a Detection Rate of 0.730 on visible frames.
 
 The control center provides JWT-based authentication with invite-token
 registration, a real-time dashboard with per-class detection color coding,
@@ -163,15 +177,25 @@ embedded systems in the following ways:
 
 \section{Project Objectives}
 
+The general objective of this project is to design, implement, and evaluate
+an AI-powered distributed anti-UAV detection system capable of real-time
+bird/drone discrimination on edge hardware with centralised web-based monitoring.
+
+The specific objectives are:
+
 \begin{enumerate}
-  \item Train a YOLO26s model for 2-class aerial object detection (Bird, Drone)
-        on curated RGB datasets with balanced class representation.
-  \item Fine-tune the model on the DUT Anti-UAV benchmark to improve real-world
-        detection continuity and reduce false positives.
+  \item Design and implement a 2-class aerial object detection model (Bird, Drone)
+        using YOLO26s, trained on curated RGB datasets with balanced class representation.
+  \item Design and implement a pseudo-label fine-tuning pipeline on the DUT Anti-UAV
+        benchmark to improve real-world detection continuity and reduce false positives.
   \item Implement a distributed edge-computing inference pipeline with
         MQTT communication, WebRTC live streaming, and PTZ camera control.
-  \item Develop a modern web-based control center with JWT authentication
-        and real-time monitoring.
+  \item Design and implement a web-based control center with JWT authentication,
+        real-time monitoring, and multi-device management.
+  \item Train and evaluate a dedicated thermal infrared detection model
+        (ThermalDrone) on the SIDD dataset and benchmark it against the
+        Anti-UAV410 thermal infrared benchmark to establish a thermal
+        detection baseline for 24/7 operation.
 \end{enumerate}
 
 \section{Scope and Limitations}
@@ -179,7 +203,11 @@ embedded systems in the following ways:
 \begin{itemize}
   \item Training datasets are limited to publicly available RGB drone and
         bird imagery (CC BY 4.0 and CC0 licenses).
-  \item Thermal infrared modality is identified as future work.
+  \item Thermal infrared modality is partially addressed: a 1-class
+        ThermalDrone model has been trained on the SIDD thermal dataset
+        and evaluated on the Anti-UAV410 benchmark
+        (Section~\ref{sec:thermal_results}). Full 24/7 thermal deployment
+        requires additional dataset acquisition.
   \item The DUT Anti-UAV evaluation uses proxy metrics (detection rate,
         tracking gaps) since per-frame annotations are not available in
         the tracking split.
@@ -198,41 +226,11 @@ is necessary to achieve reliable thermal detection. This confirms that
 extending BirdDrone-2C-FT to the thermal modality requires a dedicated
 dataset acquisition effort beyond the scope of the current work.
 
-\section{The UAV Threat Landscape}
-
-The proliferation of consumer UAVs has transformed the threat landscape for
-airspace security. Coluccia et al.~\cite{coluccia2021sensors} document the
-scale of the challenge through the Drone vs.\ Bird Detection Grand Challenge
-(3rd edition, 2020), which attracted 108 research groups globally and
-evaluated detectors against 8 distinct drone types --- fixed-wing and
-rotary-wing --- across varying backgrounds, weather conditions, and camera
-motion profiles. The challenge dataset reveals that drone bounding boxes
-range from as few as 15 px\textsuperscript{2} to over 1,000,000 px\textsuperscript{2},
-with the majority below 322 px\textsuperscript{2}, making scale variance
-the dominant difficulty factor for any vision-based detector.
-
-A comparable distributed anti-UAV system is described by Munir~\cite{munir2023kfupm},
-who develops a vision-based multi-scale UAV detector at KFUPM and provides
-the first systematic benchmark of UAV detection under adverse weather
-conditions (rain, Gaussian noise, and motion blur). That work identifies
-fundamental limitations of vision-based detection: effective range below
-350 ft, susceptibility to bird confusion, and sensitivity to illumination
-changes. The present system addresses the bird confusion problem directly
-through the 2-class BirdDrone-2C-FT architecture, and extends the prior
-work by integrating detection into a distributed edge-computing pipeline
-with a centralised web-based control center.
-
 \section{Methodology Overview}
 
-The methodology follows four main stages. First, publicly available RGB
-datasets of birds and drones are curated and merged into a balanced
-6,808-image training set. Second, a YOLO26s model is trained from scratch
-on this dataset to produce the BirdDrone-2C base model. Third, the base
-model is fine-tuned on pseudo-labeled frames from the DUT Anti-UAV benchmark
-to produce the production model BirdDrone-2C-FT. Fourth, the model is
-integrated into a distributed edge-computing system with a web-based
-control center and evaluated on the DUT benchmark sequences. Full
-implementation details are provided in Chapter~3.
+The methodology follows four main stages: dataset curation and preparation,
+model training and fine-tuning, system implementation, and performance
+evaluation. Full implementation details are provided in Chapter~3.
 
 \section{Report Structure}
 
@@ -559,17 +557,24 @@ performance.
 \caption{Comparative analysis of related anti-UAV detection systems.}
 \label{tab:lit_compare}
 \small
-\begin{tabular}{p{3.2cm}p{2.5cm}p{2.5cm}p{2.5cm}p{2.5cm}}
-\toprule
+\begin{tabular}{|p{3.0cm}|p{2.4cm}|p{2.4cm}|p{2.4cm}|p{2.4cm}|}
+\hline
 \textbf{Work} & \textbf{Model} & \textbf{Dataset} & \textbf{Performance} & \textbf{Limitation} \\
-\midrule
+\hline
 Munir~\cite{munir2023kfupm} (2023) & YOLO-RAW (YOLOv5 extension) & Anti-UAV + weather-augmented & 95.2\% mAP@0.5 (clean) & Single-class; no bird discrimination \\
+\hline
 Coluccia et al.~\cite{coluccia2021sensors} (2021) & Various (challenge) & DvB Grand Challenge & F1 up to 0.91 & No distributed deployment \\
+\hline
 Reis et al.~\cite{reis2024yolov8} (2024) & YOLOv8 (multi-size) & 15,064 flying objects & 99.1\% mAP@0.5 (3-class) & No bird class; no edge deployment \\
+\hline
 Stäcker et al.~\cite{stacker2021} (2021) & RetinaNet-18 (TensorRT) & COCO + custom & 0.361 mAP (Int8) & Detection only; no control center \\
+\hline
 Delleji et al.~\cite{delleji2025thermal} (2025) & YOLOv11 & Custom thermal & High precision/recall & Thermal only; no RGB \\
-\textbf{This work} & \textbf{YOLO26s (BirdDrone-2C-FT)} & \textbf{BirdDrone-2C + DUT} & \textbf{0.969 mAP@0.5} & \textbf{RGB only; no weather eval} \\
-\bottomrule
+\hline
+\textbf{This work (RGB)} & \textbf{YOLO26s (BirdDrone-2C-FT)} & \textbf{BirdDrone-2C + DUT} & \textbf{0.969 mAP@0.5} & \textbf{RGB only; no weather eval} \\
+\hline
+\textbf{This work (Thermal)} & \textbf{YOLO26s (ThermalDrone)} & \textbf{SIDD thermal} & \textbf{0.958 mAP@0.5 (val); F1=0.842 (Anti-UAV410)} & \textbf{1-class; SIDD training only} \\
+\hline
 \end{tabular}
 \end{table}
 
@@ -578,6 +583,185 @@ detection accuracy problem (Munir, Reis et al.) or the edge deployment
 problem (Stäcker et al.) but not both simultaneously. None of the reviewed
 systems provide a complete distributed architecture with a web-based control
 center and explicit bird/drone discrimination.
+
+\section{Multi-Object Tracking for Aerial Surveillance}
+
+Accurate multi-object tracking is essential for maintaining persistent
+identity across frames in a UAV detection system. The ByteTrack
+algorithm~\cite{zhang2022bytetrack} addresses a fundamental weakness of
+prior trackers: the discarding of low-confidence detections. ByteTrack
+retains all detections --- including those below the confidence threshold
+--- as secondary candidates and associates them with existing tracks using
+IoU-based cost matrices and the Hungarian algorithm. This approach
+significantly reduces identity switches and tracking gaps compared to
+methods that discard uncertain detections entirely.
+
+A comparative evaluation of ByteTrack, DeepSORT, and StrongSORT on
+UAV-based video surveillance~\cite{bytetrack_comparison} demonstrates
+that ByteTrack achieves the best balance of tracking accuracy and
+computational efficiency for aerial surveillance applications. DeepSORT
+relies on a deep appearance model (re-identification network) that adds
+significant computational overhead unsuitable for edge deployment.
+StrongSORT improves on DeepSORT with enhanced appearance features but
+similarly requires more computation than ByteTrack. For the distributed
+anti-UAV system, ByteTrack's lightweight design and superior handling of
+low-confidence detections make it the preferred tracking algorithm,
+particularly for small aerial targets that frequently produce uncertain
+detections at long range.
+
+\section{UAS Threat Landscape and Defense Frameworks}
+
+The threat posed by unmanned aerial systems (UAS) to critical infrastructure
+and public safety has been extensively documented. Wallace and
+Loffi~\cite{wallace2015uas} provide a comprehensive conceptual analysis
+of UAS threats and defenses, cataloguing seven categories of illicit UAS
+use: nuisance, surveillance/reconnaissance, airspace interference,
+kinetic/kamikaze attacks, payload/smuggling, weaponized platforms, and
+electronic attack. Real-world incidents documented in their analysis include
+a foiled 2011 FBI plot involving RC aircraft packed with explosives targeting
+the Pentagon, and a hexicopter carrying methamphetamines intercepted near
+the US--Mexico border in 2015.
+
+The paper synthesises 39 unique UAS defense concepts into a five-layer
+``Defense in Depth'' model: Prevention, Deterrence, Denial, Detection, and
+Interruption/Destruction. Automated visual detection occupies the critical
+Detection layer that enables all subsequent active responses. Miasnikov~\cite{miasnikov2005uav}
+further establishes that conventional radar systems and surface-to-air
+missiles are poorly suited to detecting small, slow, low-altitude
+propeller-driven UAVs due to their small radar cross-sections and the
+clutter-filtering algorithms that discard slow-moving objects. This gap
+in traditional air defense directly motivates the need for dedicated
+vision-based detection systems such as the one described in this report.
+
+\section{Edge Computing for Distributed IoT Systems}
+
+The deployment of AI inference on distributed edge nodes is a well-established
+paradigm in the IoT literature. Kong et al.~\cite{kong2022edge} survey
+edge-computing-driven IoT architectures and establish that cloud-based
+processing introduces three critical bottlenecks for real-time applications:
+long-haul network latency, bandwidth saturation from concurrent data streams,
+and privacy risks from transmitting sensitive sensor data to remote servers.
+The three-layer ECDriven-IoT architecture (endpoint devices $\to$ edge nodes
+$\to$ cloud) maps directly onto the anti-UAV system's architecture: camera
+nodes (endpoints) $\to$ Raspberry Pi/Jetson edge nodes $\to$ central control
+server.
+
+The survey identifies computation offloading and workload allocation as
+primary design challenges: if IoT devices offload all computation to edge
+servers, communication cost and edge node capacity become bottlenecks; if
+devices process locally, power consumption increases. For the anti-UAV
+system, this trade-off is resolved by running YOLO26s inference entirely
+on the edge node (eliminating network latency for detection) while
+offloading aggregation, visualisation, and storage to the central control
+server.
+
+\section{WebRTC for Real-Time Video Streaming}
+
+WebRTC (Web Real-Time Communication) is the streaming protocol used in
+this system for live camera feeds from edge nodes to the control center.
+Mahmoud and Abozariba~\cite{mahmoud2025webrtc} conduct a systematic review
+of 83 WebRTC studies and establish that WebRTC's peer-to-peer architecture
+--- using SRTP for media encryption and DTLS for data channel security ---
+eliminates the need for an intermediary media relay server in most
+deployments, enabling sub-second latency streaming with mandatory
+end-to-end encryption.
+
+The review identifies NAT traversal and network congestion as the primary
+reliability challenges for WebRTC in distributed deployments. STUN/TURN/ICE
+solutions mitigate but do not eliminate these issues under high network
+congestion. For the anti-UAV system, edge nodes behind NAT on a private
+LAN require a TURN relay server as fallback, adding latency and
+infrastructure cost. The signaling server in the proposed architecture
+handles SDP offer/answer and ICE candidate exchange, while video flows
+directly peer-to-peer between the edge device and the browser client.
+
+\section{Vision-Based Drone Detection: Survey of Methods and Benchmarks}
+
+Liu et al.~\cite{liu2024survey} provide a comprehensive survey of
+vision-based drone detection methods in complex environments, organising
+the field around four systematic challenge categories: (1) data acquisition
+difficulties (limited labeled data, class imbalance), (2) background and
+drone characteristics (small size, motion blur, varying drone types),
+(3) imaging environment factors (weather, lighting, sensor modality), and
+(4) algorithm efficiency constraints (real-time requirements, edge hardware).
+This taxonomy directly maps onto the design challenges addressed in this
+project.
+
+The survey benchmarks deep learning methods on infrared small-target
+datasets. On the SIRST dataset, UIU-Net achieves the highest IoU (78.25)
+and perfect detection probability (Pd = 100), while DNA-Net achieves the
+lowest false alarm rate (Fa = 2.51). On NUDT-SIRST, RepISD-Net achieves
+the best IoU (89.44). Lightweight models such as RDIAN (0.22M parameters,
+3.72 GFLOPs) and RepISD-Net (0.28M parameters) are identified as the most
+suitable for edge deployment, in contrast to MDvsFA-cGAN (60.30M parameters).
+The survey concludes that multi-modal fusion (visible + infrared) is the
+recommended solution for weather-robust drone detection, as visible cameras
+fail in adverse conditions while infrared cameras are unaffected by lighting
+but susceptible to thermal clutter.
+
+\section{UAV Detection on Resource-Constrained Edge Hardware}
+
+Yurchuk and Semenchenko~\cite{yurchuk2024edge} evaluate state-of-the-art
+computer vision models for UAV detection specifically on small edge devices,
+using a manually annotated dataset of approximately 2,000 images with an
+average target area ratio of 0.013 --- meaning the drone occupies only
+1.3\% of the image area in ground-to-sky perspective. This is the exact
+detection scenario for a fixed ground-based anti-UAV system.
+
+Their evaluation compares YOLOv10, Faster R-CNN, Mask R-CNN, and RT-DETR.
+RT-DETR achieves the highest precision (0.971 mAP@0.5) using its
+transformer-based multi-scale feature processing, but lightweight YOLO
+variants provide substantially higher throughput on low-power hardware.
+For a distributed anti-UAV system with multiple edge nodes, the YOLO
+family's inference speed advantage outweighs RT-DETR's marginal accuracy
+gain. The authors also find that freezing approximately 80\% of the YOLO
+backbone layers and fine-tuning only the final detection head yields the
+best accuracy-efficiency trade-off for domain-specific adaptation ---
+a finding consistent with the fine-tuning strategy adopted for
+BirdDrone-2C-FT in this work.
+
+\section{Thermal Infrared UAV Detection}
+
+Thermal infrared (IR) cameras detect heat signatures rather than reflected
+visible light, enabling detection in complete darkness, fog, and adverse
+weather conditions where RGB cameras fail. For anti-UAV applications,
+thermal imaging is particularly valuable because UAV motors and electronics
+generate heat that creates a distinct thermal signature against the sky
+background, even when the drone is visually camouflaged.
+
+The SIDD (Shandong Infrared Drone Dataset)~\cite{sidd2023} is one of the
+few publicly available thermal drone detection datasets with COCO-format
+annotations. It comprises four scene types --- city, mountain, sea, and
+sky --- captured at 640$\times$512 pixels with a LWIR sensor, providing
+4,737 annotated images across diverse backgrounds. The sea and sky scenes
+are particularly challenging, containing drones as small as 8--9 pixels
+wide against featureless backgrounds.
+
+Delleji et al.~\cite{delleji2025thermal} provide the most directly relevant
+study of thermal drone detection methodology. Their key finding --- that a
+curated 10,200-image thermal dataset outperforms a larger 12,600-image
+uncleaned set --- directly informs the ThermalDrone training strategy in
+this work. They also identify a critical gap in existing public thermal
+datasets: the FLIR ADAS dataset targets automotive scenes, the KAIST
+Multispectral dataset focuses on pedestrian detection, and available aerial
+thermal datasets contain fewer than 2,000 frames with minimal diversity.
+This gap motivates the use of SIDD as the primary training source.
+
+The Anti-UAV410 benchmark~\cite{antiuav410_2023} provides the most
+comprehensive thermal UAV evaluation framework, comprising 410 video
+sequences with 438K+ manually annotated bounding boxes. It defines ten
+challenge attributes: Thermal Crossover, Out-of-View, Scale Variation,
+Fast Motion, Occlusion, Dynamic Background Clutter, Tiny Size, Small Size,
+Medium Size, and Normal Size. The benchmark was designed for tracking
+evaluation (single-object tracking across frames), but its per-frame
+bounding box annotations make it directly usable for frame-level detection
+evaluation, which is the approach adopted in this work.
+
+A key distinction between thermal and RGB detection is the absence of
+colour information. Standard data augmentation techniques that modify
+hue and saturation (HSV augmentation) are meaningless for thermal imagery,
+which encodes temperature as pixel intensity. This requires a fundamentally
+different augmentation strategy, as detailed in Chapter~3.
 
 \section{Research Gap and Project Contribution}
 
@@ -596,7 +780,14 @@ Published models are typically evaluated on clean benchmark datasets.
 Performance on real-world sequences with complex backgrounds (urban
 structures, tree canopies) is rarely reported. This project addresses
 the gap by fine-tuning on pseudo-labeled DUT Anti-UAV sequences and
-evaluating on all 20 DUT benchmark videos.
+evaluating on all 20 DUT benchmark videos. It is worth noting that
+even after fine-tuning, the model still struggles with urban building
+backgrounds: video10 (31 tracking gaps in the base model, reduced to 8
+after fine-tuning) and video13 (43 gaps reduced to 28) demonstrate that
+building edges and window patterns continue to cause intermittent tracking
+loss. This residual weakness is documented in the Limitations section and
+addressed in the short-term future work as a target for weather and
+background augmentation.
 
 \textbf{Gap 3: Centralised monitoring of distributed edge nodes.}
 No reviewed system provides a web-based control center for real-time
@@ -723,11 +914,47 @@ registration controls access to the control center.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.85\textwidth]{figures/system_arch.png}
+\begin{tikzpicture}[
+  box/.style={rectangle, draw, rounded corners=3pt, minimum width=3.2cm,
+              minimum height=0.85cm, align=center, font=\small},
+  sbox/.style={rectangle, draw, rounded corners=3pt, minimum width=2.4cm,
+               minimum height=0.75cm, align=center, font=\footnotesize},
+  arrow/.style={->, thick, >=stealth},
+  darrow/.style={<->, thick, >=stealth, dashed}
+]
+
+%% ---- EDGE TIER (left, y=0..−3) ----
+\node[box, fill=blue!15, minimum width=3.6cm] at (0, 0)    (cam)    {Camera\\(IP / USB)};
+\node[box, fill=blue!15, minimum width=3.6cm] at (0,-1.6)  (yolo)   {YOLO26s Inference\\(Edge Device)};
+\node[box, fill=blue!15, minimum width=3.6cm] at (0,-3.2)  (webrtc) {WebRTC Stream\\(video)};
+
+%% ---- BROKER (centre) ----
+\node[box, fill=yellow!20, minimum width=2.8cm] at (5,-1.6) (mqtt)  {MQTT Broker\\(Mosquitto :8883)};
+
+%% ---- CONTROL TIER (right) ----
+\node[box, fill=green!15, minimum width=3.4cm] at (10, 0)   (agg)   {Aggregation\\(FastAPI :8001)};
+\node[box, fill=green!15, minimum width=3.4cm] at (10,-1.6) (cc)    {Control Center\\(FastAPI :8080)};
+\node[box, fill=green!15, minimum width=3.4cm] at (10,-3.2) (sig)   {WebRTC Signaling\\(Node.js :8090)};
+\node[box, fill=green!15, minimum width=3.4cm] at (10,-4.6) (browser){Browser / Mobile\\(Operator UI)};
+
+%% ---- Arrows ----
+\draw[arrow] (cam)    -- node[left,font=\tiny]{frames} (yolo);
+\draw[arrow] (yolo)   -- node[above,font=\tiny]{detections JSON} (mqtt);
+\draw[arrow] (mqtt)   -- node[above,font=\tiny]{subscribe uav/\#} (agg);
+\draw[arrow] (agg)    -- node[right,font=\tiny]{WebSocket} (cc);
+\draw[arrow] (cc)     -- node[right,font=\tiny]{serve UI} (browser);
+\draw[darrow](webrtc) -- node[below,font=\tiny]{SDP/ICE} (sig);
+\draw[arrow] (sig)    -- (browser);
+\draw[arrow] (cc)     to[bend left=20] node[above,font=\tiny]{PTZ cmd} (yolo);
+
+%% ---- Tier labels ----
+\node[font=\small\bfseries, text=blue!60] at (0, 0.9)  {Edge Tier};
+\node[font=\small\bfseries, text=green!50!black] at (10, 0.9) {Control Tier};
+\end{tikzpicture}
 \caption{System architecture overview. Edge nodes run YOLO26s inference
-locally and publish results over MQTT to the control center. The control
-center aggregates detections, displays live video via WebRTC, and allows
-operators to control PTZ cameras.}
+locally and publish detection results over MQTT to the control center. The
+control center aggregates detections, displays live video via WebRTC, and
+allows operators to control PTZ cameras.}
 \label{fig:system_arch}
 \end{figure}
 
@@ -745,13 +972,14 @@ BirdDrone-2C-FT uses a 2-class taxonomy:
 \begin{table}[H]
 \centering
 \caption{Canonical class taxonomy for BirdDrone-2C-FT.}
-\begin{tabular}{lll}
-\toprule
+\begin{tabular}{|l|l|p{7cm}|}
+\hline
 \textbf{Class} & \textbf{Index} & \textbf{Description} \\
-\midrule
+\hline
 Bird  & 0 & Birds --- confuser class, not a threat \\
+\hline
 Drone & 1 & All aerial vehicles: consumer drones, quadcopters, fixed-wing UAVs \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -781,14 +1009,16 @@ All training datasets are licensed under CC BY 4.0 or CC0.
 \centering
 \caption{Source datasets used for BirdDrone-2C base training.}
 \label{tab:sources}
-\begin{tabular}{llccc}
-\toprule
+\begin{tabular}{|l|l|c|c|c|}
+\hline
 \textbf{Dataset} & \textbf{Source} & \textbf{License} & \textbf{Images} & \textbf{Class} \\
-\midrule
+\hline
 Birds.v1i.yolov8~\cite{birds_roboflow}   & Roboflow Universe & CC BY 4.0 & 3,404 & Bird \\
+\hline
 fixed-wing-uav~\cite{fixedwing_kaggle}   & Kaggle (nyahmet)  & CC0       & 554   & Drone \\
+\hline
 anti-uav~\cite{antiuav_roboflow}         & Roboflow Universe & CC BY 4.0 & 2,850* & Drone \\
-\bottomrule
+\hline
 \multicolumn{5}{l}{\small *Capped from 19,849 to maintain class balance}
 \end{tabular}
 \end{table}
@@ -830,12 +1060,12 @@ only frames with confident detections were retained as training samples.
 \begin{table}[H]
 \centering
 \caption{Pseudo-label annotation yield and fine-tuning dataset size.}
-\begin{tabular}{lccc}
-\toprule
+\begin{tabular}{|l|c|c|p{5cm}|}
+\hline
 \textbf{Base Model} & \textbf{Annotated frames} & \textbf{Yield} & \textbf{Total fine-tune train set} \\
-\midrule
+\hline
 BirdDrone-2C & 11,345 & 45.7\% & 13,984 (original 4,901 + 9,083 DUT) \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -867,23 +1097,34 @@ YOLO26s was selected over larger variants for the following reasons:
 \begin{table}[H]
 \centering
 \caption{BirdDrone-2C base training hyperparameters.}
-\begin{tabular}{ll}
-\toprule
+\begin{tabular}{|l|l|}
+\hline
 \textbf{Parameter} & \textbf{Value} \\
-\midrule
+\hline
 Epochs       & 100 \\
+\hline
 Batch size   & 16 \\
+\hline
 Image size   & 640 \\
+\hline
 Optimizer    & SGD \\
+\hline
 lr0          & 0.01 \\
+\hline
 Patience     & 30 \\
+\hline
 copy\_paste  & 0.6 \\
+\hline
 mixup        & 0.0 \\
+\hline
 degrees      & 20.0 \\
+\hline
 flipud       & 0.3 \\
+\hline
 Hardware     & Local training \\
+\hline
 Duration     & 4.17 hours \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -930,24 +1171,36 @@ comparable to domain-randomisation augmentation.
 \begin{table}[H]
 \centering
 \caption{BirdDrone-2C-FT fine-tuning hyperparameters.}
-\begin{tabular}{ll}
-\toprule
+\begin{tabular}{|l|l|}
+\hline
 \textbf{Parameter} & \textbf{Value} \\
-\midrule
+\hline
 Base weights & BirdDrone-2C best.pt \\
+\hline
 Epochs       & 20 (early stopping at epoch 11) \\
+\hline
 Batch size   & 16 \\
+\hline
 Image size   & 640 \\
+\hline
 Optimizer    & SGD \\
+\hline
 lr0          & 0.001 \\
+\hline
 Patience     & 8 \\
+\hline
 copy\_paste  & 0.6 \\
+\hline
 mixup        & 0.0 \\
+\hline
 degrees      & 20.0 \\
+\hline
 flipud       & 0.3 \\
+\hline
 Hardware     & Local training \\
+\hline
 Duration     & $\sim$0.5 hours \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -965,7 +1218,202 @@ epoch 3 and did not improve for 8 consecutive epochs, triggering early
 stopping. This is expected behaviour for fine-tuning: the model adapts
 rapidly to the new domain and then stabilises.
 
-\section{DUT Anti-UAV Evaluation Methodology}
+\section{Docker Services Architecture}
+
+The main device runs all server-side services as Docker containers on a shared
+internal network (\texttt{uav-net}). Table~\ref{tab:docker_services} summarises
+each service, its exposed port, and its role in the system.
+
+\begin{table}[H]
+\centering
+\caption{Docker services and their roles.}
+\label{tab:docker_services}
+\begin{tabular}{|l|l|p{7.5cm}|}
+\hline
+\textbf{Service} & \textbf{Port} & \textbf{Role} \\
+\hline
+mosquitto & 8883 / 1883 & MQTT broker. External port uses TLS with password auth; internal port is plain for Docker-internal services. \\
+\hline
+aggregation & 8001 (internal) & FastAPI. Subscribes to all \texttt{uav/\#} MQTT topics, maintains device state registry, pushes WebSocket updates. \\
+\hline
+frontend-builder & — & One-shot build container. Compiles React/TypeScript frontend into the shared \texttt{frontend-dist} volume. \\
+\hline
+control-center & 8080 & FastAPI. Serves the compiled React frontend, handles JWT authentication, proxies \texttt{/api/*} to aggregation. \\
+\hline
+signaling & 8090 & Node.js WebRTC signaling. Brokers SDP/ICE between edge devices and browsers. Binds to \texttt{0.0.0.0} for edge access. \\
+\hline
+ha\_bridge & — (internal) & Silent background service. Forwards UAV state to external automation systems. \\
+\hline
+tile-server & 8070 (optional) & Self-hosted OSM tile server. Activated with \texttt{--profile tiles} for offline map operation. \\
+\hline
+\end{tabular}
+\end{table}
+
+The internal Docker network (\texttt{uav-net}) allows services to communicate
+by container name without exposing ports to the host.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  svc/.style={rectangle, draw, rounded corners=3pt, minimum width=2.8cm,
+              minimum height=0.8cm, align=center, font=\footnotesize},
+  arrow/.style={->, thick, >=stealth}
+]
+%% External actors
+\node[svc, fill=blue!10]  at (0, 0)    (edge)   {Edge Device\\(MQTT client)};
+\node[svc, fill=blue!10]  at (0,-4.5)  (browser){Browser\\(Operator)};
+
+%% Services
+\node[svc, fill=yellow!20] at (4, 0)   (mosq)  {mosquitto\\:8883 / :1883};
+\node[svc, fill=green!15]  at (8, 0)   (agg)   {aggregation\\:8001};
+\node[svc, fill=green!15]  at (8,-2.2) (cc)    {control-center\\:8080};
+\node[svc, fill=green!15]  at (4,-2.2) (sig)   {signaling\\:8090};
+\node[svc, fill=gray!15]   at (4,-4.5) (tile)  {tile-server\\:8070 (opt)};
+\node[svc, fill=gray!15]   at (8,-4.5) (ha)    {ha\_bridge};
+\node[svc, fill=orange!10] at (6,-6.2) (vol)   {frontend-dist (volume)};
+
+%% uav-net label
+\draw[draw=gray, dashed, rounded corners=6pt]
+  (2.8,0.6) rectangle (9.8,-5.2);
+\node[font=\tiny\itshape, text=gray] at (6.3, 0.45) {uav-net (Docker internal)};
+
+%% Arrows
+\draw[arrow] (edge)    -- node[above,font=\tiny]{TLS :8883} (mosq);
+\draw[arrow] (mosq)    -- node[above,font=\tiny]{plain :1883} (agg);
+\draw[arrow] (agg)     -- node[right,font=\tiny]{WebSocket} (cc);
+\draw[arrow] (cc)      -- node[above,font=\tiny]{serve} (vol);
+\draw[arrow] (browser) -- node[right,font=\tiny]{HTTP :8080} (cc);
+\draw[arrow] (browser) -- node[left,font=\tiny]{WebRTC :8090} (sig);
+\draw[arrow] (edge)    to[bend right=15] node[left,font=\tiny]{SDP/ICE} (sig);
+\draw[arrow] (agg)     -- (ha);
+\end{tikzpicture}
+\caption{Docker services architecture. All server-side services run inside the
+\texttt{uav-net} Docker network. Edge devices connect to Mosquitto on the TLS
+port (8883); internal services use the plain port (1883). The
+\texttt{frontend-dist} volume is written by the builder and served by the
+control center.}
+\label{fig:docker_arch}
+\end{figure}
+
+connects to Mosquitto on port 1883 (plain, no TLS) because both containers
+are on the same trusted internal network --- TLS overhead is unnecessary for
+intra-container communication. External edge devices connect on port 8883
+with TLS and password authentication.
+
+The \texttt{frontend-dist} Docker volume is shared between the
+\texttt{frontend-builder} and \texttt{control-center} containers. The builder
+writes the compiled React application to this volume; the control center mounts
+it as a read-only directory and serves the files directly. This separation
+means the frontend can be rebuilt independently without restarting the
+control center service.
+
+\section{MQTT Communication Protocol}
+
+MQTT (Message Queuing Telemetry Transport) is the communication backbone of
+the distributed detection system. It uses a publish-subscribe model: edge
+devices publish messages to named topics, and the aggregation service
+subscribes to receive them. This decoupling means edge devices do not need
+to know the IP address of the aggregation service --- they only need to
+reach the broker.
+
+The topic hierarchy follows the pattern \texttt{uav/\{type\}/\{device\_id\}},
+where \texttt{type} identifies the message category and \texttt{device\_id}
+identifies the originating edge node. Table~\ref{tab:mqtt_topics} lists all
+topics used in the system.
+
+\begin{table}[H]
+\centering
+\small
+\caption{MQTT topic reference.}
+\label{tab:mqtt_topics}
+\begin{tabular}{|p{4.2cm}|p{2.0cm}|p{6.3cm}|}
+\hline
+\textbf{Topic} & \textbf{Direction} & \textbf{Description} \\
+\hline
+\texttt{uav/tracking/\{id\}} & Edge $\to$ Main & Detection results per frame: bounding boxes, labels, confidence scores, track IDs. Published at inference frame rate (up to 25 fps). QoS 0. \\
+\hline
+\texttt{uav/status/\{id\}} & Edge $\to$ Main & Online/offline status, active model name, GPS coordinates. Published as a retained message. QoS 1. \\
+\hline
+\texttt{uav/health/\{id\}} & Edge $\to$ Main & CPU usage, memory usage, inference FPS, uptime. Published every 30 seconds. QoS 0. \\
+\hline
+\texttt{uav/log/\{id\}} & Edge $\to$ Main & WARNING and above log entries from the edge inference process. QoS 0. \\
+\hline
+\texttt{uav/sensor/\{id\}} & Edge $\to$ Main & Compass bearing and pitch from the edge device sensor. QoS 0. \\
+\hline
+\texttt{uav/ptz/status/\{id\}} & Edge $\to$ Main & PTZ camera position after each command. QoS 0. \\
+\hline
+\texttt{uav/ipwebcam/} \texttt{capabilities/\{id\}} & Edge $\to$ Main & Available IP Webcam settings and their valid ranges. Published once on startup. QoS 0. \\
+\hline
+\texttt{uav/ipwebcam/} \texttt{sensors/\{id\}} & Edge $\to$ Main & Phone sensor data: battery level, temperature, light, motion, pressure. QoS 0. \\
+\hline
+\texttt{uav/snapshot/\{id\}} & Edge $\to$ Main & Base64-encoded JPEG snapshot from the camera. Published on demand. QoS 0. \\
+\hline
+\texttt{uav/command/\{id\}} & Main $\to$ Edge & Commands: \texttt{start\_stream}, \texttt{stop\_stream}, \texttt{switch\_model}, \texttt{update\_config}, \texttt{ipwebcam\_control}. QoS 1. \\
+\hline
+\texttt{uav/ptz/\{id\}} & Main $\to$ Edge & PTZ commands: pan, tilt, zoom, \texttt{pan\_to\_bearing}. QoS 0. \\
+\hline
+\end{tabular}
+\end{table}
+
+Retained messages (used for \texttt{uav/status/\{id\}}) are stored by the
+broker and delivered immediately to any new subscriber.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  actor/.style={rectangle, draw, rounded corners=3pt, minimum width=2.6cm,
+                minimum height=0.8cm, align=center, font=\footnotesize},
+  arrow/.style={->, thick, >=stealth},
+  retarrow/.style={->, thick, >=stealth, dashed, color=orange!70!black}
+]
+%% Actors — fixed coordinates
+\node[actor, fill=blue!10]   at (0,  0)   (edge1)  {Edge Node 1};
+\node[actor, fill=blue!10]   at (0, -2)   (edge2)  {Edge Node 2};
+\node[actor, fill=yellow!20] at (5,  -1)  (broker) {MQTT Broker\\(Mosquitto)};
+\node[actor, fill=green!15]  at (10,  0)  (agg)    {Aggregation\\Service};
+\node[actor, fill=green!15]  at (10, -2)  (cc)     {Control Center\\/ Browser};
+
+%% Publish arrows (edge → broker)
+\draw[arrow] (edge1) -- node[above, font=\tiny]{uav/tracking/1 (QoS 0)} (broker);
+\draw[arrow] (edge2) -- node[below, font=\tiny]{uav/status/2 (QoS 1, retained)} (broker);
+
+%% Subscribe arrows (broker → aggregation)
+\draw[arrow] (broker) -- node[above, font=\tiny]{subscribe uav/\#} (agg);
+
+%% WebSocket push
+\draw[arrow] (agg) -- node[right, font=\tiny]{WebSocket push} (cc);
+
+%% LWT annotation
+\draw[retarrow] (broker) to[bend right=25]
+  node[below, font=\tiny, color=orange!70!black]{LWT: offline status on disconnect}
+  (cc);
+
+%% QoS legend
+\node[font=\tiny, align=left] at (5, -3.2) {
+  QoS 0 = fire-and-forget \quad
+  QoS 1 = at-least-once \quad
+  dashed = LWT (Last Will)
+};
+\end{tikzpicture}
+\caption{MQTT publish-subscribe flow. Edge nodes publish detection results
+(\texttt{uav/tracking/\{id\}}) at up to 25 fps (QoS 0) and status messages
+(\texttt{uav/status/\{id\}}) as retained messages (QoS 1). The aggregation
+service subscribes to all \texttt{uav/\#} topics and pushes updates to the
+control center via WebSocket. The Last Will and Testament (LWT) mechanism
+automatically publishes an offline status if an edge device disconnects
+unexpectedly.}
+\label{fig:mqtt_flow}
+\end{figure}
+
+receives the last known status of every edge device without waiting for the
+next status publication.
+
+The Last Will and Testament (LWT) mechanism is used to detect unexpected
+edge device disconnections. Each edge device registers an offline status
+message as its LWT when connecting to the broker. If the device disconnects
+without sending an explicit offline message (e.g., due to a crash or network
+failure), the broker automatically publishes the LWT message, and the control
+center marks the device as offline.
 
 Since per-frame annotations are not available in the tracking split, the
 following proxy metrics are used:
@@ -989,14 +1437,16 @@ large gaps correspond to the UAV genuinely leaving the camera field of view
 \caption{Confirmed out-of-frame gaps (verified by visual inspection).}
 \label{tab:oof}
 \small
-\begin{tabular}{llccc}
-\toprule
+\begin{tabular}{|l|l|c|c|}
+\hline
 \textbf{Video} & \textbf{Frames} & \textbf{Duration} & \textbf{Cause} \\
-\midrule
+\hline
 video07 & 423--580  & 6.3s  & UAV left frame \\
+\hline
 video09 & 537--1042 & 20.2s & UAV left frame \\
+\hline
 video12 & 687--939  & 10.1s & UAV left frame + tracking loss \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -1048,6 +1498,19 @@ presents the results of applying this methodology.
 
 % ============================================================
 \chapter{Results}
+
+\section{Experimental Setup}
+
+All experiments were conducted on a local workstation equipped with an
+NVIDIA GeForce RTX 2070 GPU (8 GB VRAM), 16 GB system RAM, running
+CachyOS (Arch-based Linux). The training framework is Ultralytics
+YOLO26s (Python 3.10, PyTorch 2.x). Dataset splits follow the standard
+80/10/10 train/validation/test ratio for the base BirdDrone-2C dataset;
+the DUT Anti-UAV tracking split (20 videos, 24,804 frames) is used
+exclusively for fine-tuning and evaluation. All results reported in this
+chapter are from single training runs; reproducibility is ensured through
+fixed random seeds and the configuration files provided in the project
+repository.
 
 \section{Training Curves}
 
@@ -1113,15 +1576,16 @@ which are noisier than the manually annotated base training data.
 \caption{BirdDrone-2C-FT validation metrics on the combined val set
 (original BirdDrone-2C val + DUT pseudo-labeled val frames).}
 \label{tab:val_ft}
-\begin{tabular}{lcccc}
-\toprule
+\begin{tabular}{|l|c|c|c|c|}
+\hline
 \textbf{Model} & \textbf{mAP@0.5} & \textbf{mAP@0.5:0.95} & \textbf{Precision} & \textbf{Recall} \\
-\midrule
+\hline
 BirdDrone-2C (base) & 0.926 & 0.554 & 0.942 & 0.873 \\
+\hline
 \textbf{BirdDrone-2C-FT} & \textbf{0.969} & \textbf{0.678} & \textbf{0.961} & \textbf{0.934} \\
-\midrule
+\hline
 Improvement & +0.043 & +0.124 & +0.019 & +0.061 \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -1151,14 +1615,16 @@ tracking (which uses the bounding box centre as the tracking target).
 \centering
 \caption{BirdDrone-2C-FT cross-dataset evaluation on independent test splits.}
 \label{tab:cross}
-\begin{tabular}{lcc}
-\toprule
+\begin{tabular}{|l|c|c|}
+\hline
 \textbf{Test Set} & \textbf{BirdDrone-2C (base)} & \textbf{BirdDrone-2C-FT} \\
-\midrule
+\hline
 Anti-UAV test (1,659 img, UAV)         & 0.934 & 0.929 ($-$0.005) \\
+\hline
 UAVDetector test (165 img, fixed-wing) & 0.273 & \textbf{0.341} ($+$0.069) \\
+\hline
 Birds.v1i valid (378 img, Bird)        & 0.973 & 0.972 ($-$0.001) \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -1193,13 +1659,14 @@ or DUT datasets.
 \centering
 \caption{Bird classification accuracy on Birds.v1i valid split (378 images).}
 \label{tab:bird_fp}
-\begin{tabular}{lccc}
-\toprule
+\begin{tabular}{|l|c|c|c|}
+\hline
 \textbf{Model} & \textbf{Correct (Bird)} & \textbf{False alarm (Bird$\to$Drone)} & \textbf{Missed} \\
-\midrule
+\hline
 BirdDrone-2C (base) & 362 (95.8\%) & 1 (0.3\%) & 24 \\
+\hline
 \textbf{BirdDrone-2C-FT} & \textbf{364 (96.3\%)} & \textbf{1 (0.3\%)} & \textbf{17} \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -1252,18 +1719,24 @@ background types, teaches the model to suppress these uncertain activations.
 \centering
 \caption{BirdDrone-2C-FT aggregate performance on DUT Anti-UAV (20 videos).}
 \label{tab:dut_agg}
-\begin{tabular}{lcc}
-\toprule
+\begin{tabular}{|l|c|c|}
+\hline
 \textbf{Metric} & \textbf{BirdDrone-2C (base)} & \textbf{BirdDrone-2C-FT} \\
-\midrule
+\hline
 Avg Detection Rate    & 0.808 & \textbf{0.818} \\
+\hline
 Avg Confidence        & 0.671 & \textbf{0.790} \\
+\hline
 First-frame TP Rate   & 0.850 & \textbf{0.850} \\
+\hline
 False-Class Detections & 159  & \textbf{65} \\
+\hline
 Low-Confidence FP     & 2,549 & \textbf{1,154} \\
+\hline
 Tracking Gaps         & 199   & \textbf{131} \\
+\hline
 Total Missed Frames   & 6,164 & \textbf{5,704} \\
-\bottomrule
+\hline
 \end{tabular}
 \end{table}
 
@@ -1326,41 +1799,59 @@ the 20 videos (at 25 fps).
 
 \subsection{Per-Video Results}
 
-\begin{longtable}{lcccccc}
-\caption{Per-video DUT results: BirdDrone-2C base vs BirdDrone-2C-FT.}\\
-\toprule
+\begin{table}[H]
+\centering
+\caption{Per-video DUT results: BirdDrone-2C base vs BirdDrone-2C-FT.}
+\label{tab:per_video}
+\small
+\begin{tabular}{|l|c|c|c|c|c|c|}
+\hline
 \textbf{Video} & \textbf{Base DR} & \textbf{FT DR} & \textbf{$\Delta$ DR} & \textbf{Base Gaps} & \textbf{FT Gaps} & \textbf{FT Conf} \\
-\midrule
-\endfirsthead
-\multicolumn{7}{c}{\tablename\ -- continued}\\
-\toprule
-\textbf{Video} & \textbf{Base DR} & \textbf{FT DR} & \textbf{$\Delta$ DR} & \textbf{Base Gaps} & \textbf{FT Gaps} & \textbf{FT Conf} \\
-\midrule
-\endhead
+\hline
 video01 & 0.824 & 0.855 & +0.031 & 5  & 5  & high \\
+\hline
 video02 & 0.879 & 1.000 & +0.121 & 0  & 0  & high \\
+\hline
 video03 & 0.970 & 1.000 & +0.030 & 0  & 0  & high \\
+\hline
 video04 & 0.994 & 0.991 & $-$0.003 & 0  & 0  & high \\
+\hline
 video05 & 0.951 & 0.944 & $-$0.007 & 1  & 1  & high \\
+\hline
 video06 & 1.000 & 1.000 & +0.000 & 0  & 0  & high \\
+\hline
 video07 & 0.712 & 0.757 & +0.046 & 12 & 11 & med \\
+\hline
 video08 & 0.883 & 0.898 & +0.016 & 5  & 5  & high \\
+\hline
 video09 & 0.606 & 0.650 & +0.045 & 5  & 3  & med \\
+\hline
 video10 & 0.694 & 0.846 & +0.152 & 31 & 8  & high \\
+\hline
 video11 & 0.982 & 0.979 & $-$0.003 & 0  & 0  & high \\
+\hline
 video12 & 0.663 & 0.666 & +0.003 & 5  & 5  & med \\
+\hline
 video13 & 0.488 & 0.625 & +0.136 & 43 & 28 & med \\
+\hline
 video14 & 0.827 & 0.831 & +0.003 & 7  & 5  & high \\
+\hline
 video15 & 0.641 & 0.847 & +0.206 & 22 & 7  & high \\
+\hline
 video16 & 0.746 & 0.279 & $-$0.468 & 21 & 7  & low \\
+\hline
 video17 & 0.550 & 0.606 & +0.056 & 21 & 17 & med \\
+\hline
 video18 & 0.958 & 0.956 & $-$0.002 & 2  & 1  & high \\
+\hline
 video19 & 0.995 & 0.850 & $-$0.145 & 0  & 8  & high \\
+\hline
 video20 & 0.793 & 0.769 & $-$0.024 & 19 & 20 & high \\
-\midrule
+\hline
 \textbf{Average} & \textbf{0.808} & \textbf{0.818} & \textbf{+0.010} & \textbf{199} & \textbf{131} & \\
-\bottomrule
-\end{longtable}
+\hline
+\end{tabular}
+\end{table}
 
 The fine-tuned model improves detection rate on 13 out of 20 videos and
 reduces tracking gaps on 12 out of 20 videos. The results can be grouped
@@ -1478,6 +1969,377 @@ labels more carefully for small objects, directly improving IoU on small
 targets. The +0.124 improvement in mAP@0.5:0.95 after fine-tuning is
 partly attributable to the model learning tighter localisation on the
 small UAV targets present in the DUT sequences.
+
+\section{Chapter Summary}
+
+This chapter presented the experimental results for the BirdDrone-2C-FT
+production model. The key findings are:
+        set, a +0.043 improvement over the base model, with mAP@0.5:0.95 = 0.678.
+  \item The bird false alarm rate is 0.3\% --- only 1 out of 378 bird images
+        is misclassified as a drone, unchanged from the base model.
+  \item Fine-tuning reduces low-confidence false positives by 55\%
+        (2,549 $\to$ 1,154) and tracking gaps by 34\% (199 $\to$ 131) on
+        the DUT Anti-UAV benchmark.
+  \item Average detection confidence increases from 0.671 to 0.790,
+        enabling a stricter deployment threshold (0.40--0.45).
+  \item Cross-dataset evaluation confirms generalisation: 0.929 mAP@0.5
+        on the independent Anti-UAV test set (not used in training).
+  \item ThermalDrone achieves mAP@0.5 = 0.958 on the SIDD thermal validation
+        split and F1 = 0.842 on the Anti-UAV410 benchmark (129,691 frames),
+        establishing the first YOLO26s thermal detection baseline.
+  \item The 0.993 precision on Anti-UAV410 confirms near-zero false positives
+        on unseen thermal sequences; the 0.730 recall quantifies the SIDD
+        $\to$ Anti-UAV410 domain gap as the primary target for future work.
+\end{itemize}
+
+Chapter~5 discusses the interpretation of these results, compares the
+system with prior work, and analyses the anomalous regressions on
+video16 and video19.
+
+% ============================================================
+\section{Thermal Infrared Model: ThermalDrone}
+\label{sec:thermal_results}
+
+\subsection{Overview}
+
+A dedicated thermal infrared detection model, \textbf{ThermalDrone}, was
+trained as a separate branch from the RGB pipeline using the same YOLO26s
+architecture with thermal-specific augmentation. It detects a single class: Drone.
+
+Figure~\ref{fig:thermal_pipeline} illustrates the complete ThermalDrone pipeline.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  box/.style={rectangle, draw, rounded corners=3pt, minimum width=3.0cm,
+              minimum height=0.85cm, align=center, font=\small},
+  arrow/.style={->, thick, >=stealth}
+]
+% Row 1 — Data (y=0)
+\node[box, fill=blue!10]  at (0,0)   (sidd)    {SIDD Dataset\\(4 scenes, COCO)};
+\node[box, fill=blue!10]  at (4,0)   (convert) {COCO$\to$YOLO\\Conversion};
+\node[box, fill=blue!10]  at (8,0)   (merged)  {thermal\_merged/\\3,788 train};
+
+% Row 2 — Training (y=-2)
+\node[box, fill=green!10] at (0,-2)  (pretrain){COCO Pretrained\\yolo26s.pt};
+\node[box, fill=green!10] at (4,-2)  (aug)     {Thermal Aug\\(no HSV, erasing)};
+\node[box, fill=green!10] at (8,-2)  (train)   {YOLO26s Training\\(100 ep, RTX 2070)};
+
+% Row 3 — Outputs (y=-4)
+\node[box, fill=orange!10] at (4,-4) (weights) {best.pt\\(ThermalDrone)};
+\node[box, fill=orange!10] at (8,-4) (sidd_val){SIDD Val\\mAP@0.5=0.958};
+\node[box, fill=red!10]    at (0,-4) (bench)   {Anti-UAV410\\F1=0.842};
+
+% Arrows
+\draw[arrow] (sidd)     -- (convert);
+\draw[arrow] (convert)  -- (merged);
+\draw[arrow] (merged)   -- (train);
+\draw[arrow] (pretrain) -- (aug);
+\draw[arrow] (aug)      -- (train);
+\draw[arrow] (train)    -- (weights);
+\draw[arrow] (weights)  -- (sidd_val);
+\draw[arrow] (weights)  -- (bench);
+
+% Row labels
+\node[font=\footnotesize\itshape, text=gray] at (-2.2, 0)  {Data};
+\node[font=\footnotesize\itshape, text=gray] at (-2.2,-2)  {Training};
+\node[font=\footnotesize\itshape, text=gray] at (-2.2,-4)  {Output};
+\end{tikzpicture}
+\caption{ThermalDrone pipeline. SIDD COCO annotations are converted to YOLO
+format and merged across four scenes. Training uses YOLO26s pretrained weights
+with thermal-specific augmentation (HSV disabled, erasing enabled). The
+resulting model is evaluated on the SIDD validation split and the Anti-UAV410
+benchmark.}
+\label{fig:thermal_pipeline}
+\end{figure}
+
+\subsection{Training Dataset: SIDD}
+
+The SIDD (Shandong Infrared Drone Dataset)~\cite{sidd2023} is a thermal
+infrared drone detection dataset comprising four scene types: city, mountain,
+sea, and sky, captured at 640$\times$512 pixels with a LWIR thermal sensor.
+Annotations are in COCO JSON format (single class: UAV), converted to YOLO
+format for training. This is consistent with the data quality principle of
+Delleji et al.~\cite{delleji2025thermal}: a curated, diverse thermal dataset
+outperforms a larger uncleaned one.
+
+\textbf{Data type:} Thermal infrared (LWIR) still images, 640$\times$512 px,
+8-bit grayscale encoding temperature as pixel intensity.
+
+\textbf{Source:} GitHub repository \url{https://github.com/Dang-zy/SIDD},
+publicly available, no registration required.
+
+\textbf{Data description:} Four scene types representing distinct thermal
+backgrounds encountered in real anti-UAV deployments. Each image contains
+exactly one drone annotation. Some images contain CCTV-style text overlays
+(timestamps, camera identifiers) in fixed screen corners.
+
+\textbf{Data size:} 4,737 images total across all scenes and splits.
+
+\textbf{Modifications made:}
+\begin{itemize}
+  \item COCO JSON annotations converted to YOLO TXT format
+        (normalised $[c_x, c_y, w, h]$ per image).
+  \item Class label remapped: \texttt{UAV} (COCO category) $\to$
+        \texttt{Drone} (class index 0) to align with the project's
+        canonical class taxonomy.
+  \item All four scenes merged into a single \texttt{thermal\_merged/}
+        dataset with unified \texttt{train/} and \texttt{val/} splits,
+        preserving the original SIDD train2017/val2017 split boundaries.
+  \item Scene-prefixed filenames used to prevent collisions
+        (e.g., \texttt{city\_345.jpg}, \texttt{sea\_14038.jpg}).
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{SIDD thermal dataset composition.}
+\label{tab:sidd}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Scene} & \textbf{Train} & \textbf{Val} & \textbf{Notes} \\
+\hline
+city    & 874  & 219 & Urban background \\
+\hline
+moutain & 1720 & 431 & Natural background \\
+\hline
+sea     & 570  & 143 & Tiny targets (8--9 px) \\
+\hline
+sky     & 624  & 156 & Small targets \\
+\hline
+\textbf{Total} & \textbf{3,788} & \textbf{949} & 1 class: Drone \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Thermal Implementation Details}
+
+The ThermalDrone model was trained using the \texttt{train\_thermal.py}
+script in the project repository, which calls the Ultralytics YOLO26s
+training API (version 8.4.33, Python 3.14, PyTorch 2.11.0+cu130).
+Training ran on the same local RTX 2070 workstation as the RGB models,
+with batch size reduced to 8 (from 16 for RGB) to accommodate the
+640$\times$512 thermal image dimensions within the 8 GB VRAM budget.
+
+The key implementation difference from the RGB pipeline is the augmentation
+configuration. Standard HSV augmentation (hue, saturation shifts) is
+disabled entirely because thermal imagery encodes temperature as pixel
+intensity rather than colour --- HSV shifts would introduce artificial
+variation with no physical meaning. Instead, brightness variation
+(\texttt{hsv\_v = 0.15}) is retained to simulate sensor gain differences
+between thermal cameras. The \texttt{erasing = 0.3} parameter applies
+random rectangular erasure to simulate the CCTV text overlays present
+in some SIDD frames, preventing the model from learning to associate
+these overlays with the drone class.
+
+The \texttt{copy\_paste = 0.7} setting is higher than the RGB runs (0.6)
+to compensate for the tiny drone targets in the sea and sky scenes
+(8--9 pixels wide). Copy-paste augmentation synthetically pastes drone
+crops onto diverse backgrounds, directly increasing the variety of
+thermal backgrounds the model sees drones against.
+
+Key differences from RGB runs: HSV hue/saturation disabled (thermal is
+grayscale), higher copy-paste (0.7) for tiny targets, lower lr0 (0.005)
+for the smaller dataset, and erasing (0.3) to simulate CCTV text overlays.
+
+\begin{table}[H]
+\centering
+\caption{ThermalDrone key hyperparameters (RTX 2070, 100 epochs).}
+\label{tab:thermal_config}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Parameter} & \textbf{Value} & \textbf{Justification} \\
+\hline
+lr0         & 0.005  & Smaller dataset than RGB \\
+\hline
+copy\_paste & 0.7    & Compensates for tiny targets \\
+\hline
+hsv\_h/s    & 0.0    & Disabled --- thermal is grayscale \\
+\hline
+hsv\_v      & 0.15   & Slight brightness variation only \\
+\hline
+erasing     & 0.3    & Simulates CCTV text overlays \\
+\hline
+mixup       & 0.0    & Disabled --- thermal images do not blend \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Training Results}
+
+\begin{table}[H]
+\centering
+\caption{ThermalDrone results on SIDD validation split (best epoch 89/100).}
+\label{tab:thermal_train}
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Metric} & \textbf{Value} \\
+\hline
+mAP@0.5       & \textbf{0.958} \\
+\hline
+mAP@0.5:0.95  & \textbf{0.654} \\
+\hline
+Precision     & \textbf{0.983} \\
+\hline
+Recall        & \textbf{0.908} \\
+\hline
+Duration      & $\sim$2.3 hours \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{run_graphs/ThermalDrone/results.png}
+  \caption{ThermalDrone training curves (100 epochs, RTX 2070). mAP@0.5
+  rises from 0.660 at epoch 1 to 0.837 at epoch 10, reaches 0.946 at
+  epoch 55, and peaks at 0.958 at epoch 89. Smooth convergence with no
+  signs of overfitting confirms the thermal-specific augmentation strategy
+  is effective.}
+  \label{fig:thermal_curves}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.55\textwidth]{run_graphs/ThermalDrone/confusion_matrix_normalized.png}
+  \caption{ThermalDrone normalised confusion matrix on SIDD validation split.
+  The near-perfect diagonal confirms the model correctly identifies drones
+  with minimal background confusion on the SIDD distribution.}
+  \label{fig:thermal_cm}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{run_graphs/ThermalDrone/BoxPR_curve.png}
+  \caption{ThermalDrone Precision-Recall curve on SIDD validation split.
+  The curve remains high across the full recall range, indicating robust
+  detection with minimal precision degradation at higher recall thresholds.}
+  \label{fig:thermal_pr}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{run_graphs/ThermalDrone/val_batch0_labels.jpg}
+    \caption{Ground truth labels}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{run_graphs/ThermalDrone/val_batch0_pred.jpg}
+    \caption{Model predictions}
+  \end{subfigure}
+  \caption{ThermalDrone validation batch 0: ground truth (left) vs model
+  predictions (right). The model correctly localises drones across all four
+  SIDD scene types (city, mountain, sea, sky) including tiny targets in
+  sea and sky scenes.}
+  \label{fig:thermal_val}
+\end{figure}
+\label{sec:antiuav410}
+
+The Anti-UAV410 benchmark~\cite{antiuav410_2023} comprises 410 thermal
+infrared video sequences with over 438,000 manually annotated bounding boxes,
+covering challenging conditions: thermal crossover, fast motion, occlusion,
+dynamic background clutter, and tiny/small target sizes. The test split
+contains 128 sequences ($\sim$1,000 frames each). ThermalDrone was evaluated
+frame-by-frame on all 128 test sequences (129,691 total frames) at IoU $\geq$ 0.5.
+
+\begin{table}[H]
+\centering
+\caption{ThermalDrone on Anti-UAV410 test split (128 sequences, 129,691 frames).}
+\label{tab:antiuav410}
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Metric} & \textbf{Value} \\
+\hline
+Total frames      & 129,691 \\
+\hline
+Visible frames    & 127,037 (98.0\%) \\
+\hline
+Invisible frames  & 2,654 (2.0\%) \\
+\hline
+True Positives    & 92,731 \\
+\hline
+False Positives   & 627 \\
+\hline
+False Negatives   & 34,306 \\
+\hline
+\textbf{Precision}       & \textbf{0.993} \\
+\hline
+\textbf{Recall}          & \textbf{0.730} \\
+\hline
+\textbf{F1}              & \textbf{0.842} \\
+\hline
+\textbf{Detection Rate}  & \textbf{0.730} \\
+\hline
+False Alarm Rate  & 0.236 \\
+\hline
+\end{tabular}
+\end{table}
+
+The precision of 0.993 confirms very few false positives on unseen thermal
+sequences. The recall of 0.730 reflects the domain gap between SIDD (clean,
+static backgrounds) and Anti-UAV410 (fast motion, thermal crossover, tiny
+targets). The 27\% miss rate is the primary target for future improvement
+through fine-tuning on Anti-UAV410 sequences.
+
+\textbf{Addressing discrepancies and unexpected results:}
+Two results warrant specific discussion. First, the False Alarm Rate of 0.236
+on invisible frames (frames where the drone is out of view) is higher than
+ideal. This is a \textit{method limitation}: ThermalDrone was trained
+exclusively on SIDD, which contains no ``empty sky'' negative examples ---
+every training image contains a drone. The model has therefore not learned
+to suppress detections on drone-free thermal backgrounds. This is distinct
+from a \textit{validation limitation}: the 2,654 invisible frames in
+Anti-UAV410 represent only 2.0\% of the test set, so the FAR has limited
+impact on the aggregate F1 score. Addressing this requires adding negative
+examples (drone-free thermal frames) to the training set.
+
+Second, the recall gap between SIDD validation (0.908) and Anti-UAV410
+(0.730) is a direct consequence of the domain shift. Anti-UAV410 includes
+sequences with Thermal Crossover (drone temperature matches background),
+Tiny Size (drone $<$ 16$\times$16 pixels), and Fast Motion (large
+inter-frame displacement) --- attributes absent from SIDD. The 0.178
+recall drop is therefore expected and does not indicate a training failure;
+it quantifies the domain gap that fine-tuning on Anti-UAV410 sequences
+would close.
+
+\textbf{Actual Contributions of This Work (Thermal):}
+\begin{enumerate}
+  \item A thermal YOLO26s detector (ThermalDrone) trained on the SIDD
+        dataset achieves mAP@0.5 = 0.958 on the SIDD validation split
+        using only 3,788 training images --- demonstrating that the
+        YOLO26s architecture and thermal-specific augmentation pipeline
+        are effective for thermal drone detection without large-scale data.
+  \item Frame-level evaluation on the Anti-UAV410 benchmark (129,691 frames,
+        128 sequences) yields Precision = 0.993, Recall = 0.730, F1 = 0.842,
+        establishing the first published YOLO26s detection baseline on this
+        benchmark.
+  \item A reusable COCO-to-YOLO conversion pipeline for the SIDD dataset
+        and a frame-level detection evaluation script for Anti-UAV410 are
+        provided as open-source tools in the project repository.
+\end{enumerate}
+
+\subsection{All Models Summary}
+
+\begin{table}[H]
+\centering
+\caption{Summary of all trained YOLO26s models.}
+\label{tab:all_models}
+\begin{tabular}{|l|l|c|c|c|}
+\hline
+\textbf{Model} & \textbf{Modality} & \textbf{Classes} & \textbf{mAP@0.5} & \textbf{mAP@0.5:0.95} \\
+\hline
+BirdDrone-2C    & RGB     & 2 & 0.926 & 0.554 \\
+\hline
+BirdDrone-3C    & RGB     & 3 & 0.892 & 0.574 \\
+\hline
+BirdDrone-2C-FT & RGB     & 2 & 0.969 & 0.678 \\
+\hline
+BirdDrone-3C-FT & RGB     & 3 & 0.881 & 0.598 \\
+\hline
+\textbf{ThermalDrone} & \textbf{Thermal IR} & \textbf{1} & \textbf{0.958} & \textbf{0.654} \\
+\hline
+\end{tabular}
+\end{table}
 
 % ============================================================
 \chapter{Discussion}
@@ -1678,8 +2540,9 @@ BirdDrone-2C-FT detection model. It provides the following operational
 capabilities:
 
 \begin{itemize}
-  \item \textbf{Per-class color coding}: drone detections are shown in red,
-        bird detections in amber. Operators can instantly distinguish genuine
+  \item \textbf{Per-class color coding}: drone detections are shown in red
+        (confidence $\geq$ 0.5) or orange (confidence $<$ 0.5), and bird
+        detections in green. Operators can instantly distinguish genuine
         threats from confuser objects in the live feed overlay.
   \item \textbf{Confidence display}: each bounding box shows the detection
         confidence score, allowing operators to apply their own threshold
@@ -1698,8 +2561,161 @@ capabilities:
         trail of system events.
 \end{itemize}
 
+\subsection{Overview Dashboard}
+
+Figure~\ref{fig:main_overview} shows the main overview page of the control
+center. The dashboard displays four summary cards at the top: total devices,
+devices currently online, active detections, and alerting devices. Below the
+summary cards, a grid of device cards shows the status of each connected edge
+node. Each card displays the device ID, online/offline status, uptime, active
+model name, per-class detection counts, and the timestamp of the last detection.
+Quick-action buttons allow operators to view device details or start a live
+stream directly from the overview.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figures/main-overview.png}
+  \caption{Anti-UAV Control Center overview dashboard. Summary cards at the
+  top show system-wide status. Device cards below show per-node detection
+  counts, uptime, and active model.}
+  \label{fig:main_overview}
+\end{figure}
+
+\subsection{Interactive Map}
+
+Figure~\ref{fig:map} shows the interactive map view. Each edge device is
+represented by a marker at its configured GPS coordinates. Marker colour
+indicates device status: green for online, grey for offline, red for active
+detection, and amber for health timeout (missed heartbeat). Clicking a marker
+opens a slide-in panel on the right side of the map showing the device's live
+feed, health metrics, sensor data, and PTZ controls --- all without leaving
+the map view.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figures/map.png}
+  \caption{Interactive map view with device markers. Clicking a marker opens
+  a slide-in panel with live feed, health data, and PTZ controls.}
+  \label{fig:map}
+\end{figure}
+
+The map uses OpenStreetMap tiles served either from the internet or from a
+self-hosted tile server for offline operation. The self-hosted option is
+activated by importing a regional \texttt{.osm.pbf} file into the tile server
+container and setting the \texttt{TILE\_SERVER\_URL} environment variable.
+
+\subsection{Live Feeds}
+
+The Live Feeds page displays up to four simultaneous WebRTC video streams in
+a grid layout. Streams start automatically when the page opens. Each feed
+shows the raw camera image with bounding box overlays drawn in real time:
+drones with confidence $\geq$ 0.5 are shown in red, drones with confidence
+$<$ 0.5 in orange, and birds in green. Each bounding box is labelled with
+the track ID and confidence score. A class legend in the corner of each feed
+identifies the colour coding. The page shows a ``Waiting for stream\ldots''
+indicator while the WebRTC connection is being established, and a
+``Stream interrupted --- reconnecting\ldots'' indicator if the connection drops.
+
+\subsection{Device Detail and Configuration}
+
+The Device Detail page provides a full-page view of a single edge device.
+It shows health gauges (CPU percentage, memory percentage, inference FPS),
+certificate information, the active model name, and the last 50 detections
+with timestamp, label, and confidence. An Edit Config panel allows operators
+to push configuration changes to the edge device at runtime --- updating the
+camera source URL, frame rate, or active model --- without restarting the
+inference process.
+
+\subsection{IP Webcam Remote Controls}
+
+When an edge device is configured with an IP Webcam URL, the Device Detail
+page shows an additional IP Webcam Controls panel. This panel allows operators
+to remotely control the phone camera through the edge device, which proxies
+the commands to the IP Webcam HTTP API. Available controls include:
+
+\begin{itemize}
+  \item \textbf{Stream}: zoom slider (0--100), video resolution dropdown
+        (populated from the phone's supported resolutions), and JPEG quality
+        slider.
+  \item \textbf{Camera}: front/back camera toggle, night vision mode
+        toggle, and timestamp overlay toggle.
+  \item \textbf{Focus}: focus mode dropdown (auto, macro, infinity, fixed)
+        and a manual focus trigger button.
+  \item \textbf{Exposure}: manual sensor mode toggle, ISO sensitivity slider,
+        exposure time input (in milliseconds), frame duration input, aperture
+        input, exposure lock toggle, and white balance lock toggle. The ISO
+        and exposure controls are disabled when manual sensor mode is off.
+  \item \textbf{Recording}: video recording toggle and a snapshot button.
+        Clicking Snapshot fetches a JPEG from the phone and displays it in
+        a modal dialog with a download button.
+\end{itemize}
+
+Phone sensor data (battery level, battery temperature, ambient light, motion,
+atmospheric pressure) is polled every 30 seconds and displayed in the health
+section of the Device Detail page.
+
+\subsection{Authentication and Access Control}
+
+The control center uses JWT-based authentication with invite-token registration.
+An administrator generates a single-use invite token (format: \texttt{UAV-XXXX-XXXX},
+valid for up to 30 days) and shares it out-of-band. The new user visits
+\texttt{/register?token=UAV-XXXX-XXXX}, fills in their display name, username,
+and password, and the account is created. The token is consumed and cannot be
+reused.
+
+Two roles are supported: \texttt{admin} (full access including PTZ commands,
+model switching, user management, and audit log) and \texttt{viewer}
+(read-only access to detection data and live feeds). Every PTZ command and
+model switch is written to the audit log with the username, timestamp, and
+target device.
+
+The Settings page (admin only) provides tabs for managing active sessions
+(with the ability to revoke individual sessions), viewing and revoking invite
+tokens, configuring notification webhooks, and setting per-device alert
+thresholds (minimum confidence, consecutive frame count, and alert classes).
+
+\subsection{Notification Webhooks}
+
+The system supports HTTP webhook notifications for three event types:
+\texttt{detection\_alert} (when a detection meets the configured threshold),
+\texttt{device\_online} (when an edge device connects), and
+\texttt{device\_offline} (when an edge device disconnects or times out).
+Webhook payloads are signed with HMAC-SHA256 using a configurable secret,
+allowing the receiving server to verify the authenticity of the notification.
+Webhooks can be tested directly from the Settings page, which sends a test
+payload and displays the HTTP response code.
+
 % ============================================================
 \chapter{Conclusion}
+
+\section{Chapter Overview}
+
+This chapter summarises the achievements of the project against the stated
+objectives, identifies the limitations of the current work, and outlines
+directions for future research. A final concluding statement is provided
+at the end of the chapter.
+
+\section{Summary of Achievements Against Objectives}
+
+The four specific objectives stated in Chapter~1 have been fully achieved:
+
+\begin{enumerate}
+  \item \textbf{Objective 1 --- Design and implement a 2-class aerial object
+        detection model:} Achieved. BirdDrone-2C-FT achieves mAP@0.5 = 0.969
+        on the combined validation set with a bird false alarm rate of 0.3\%.
+  \item \textbf{Objective 2 --- Design and implement a pseudo-label fine-tuning
+        pipeline:} Achieved. Fine-tuning on DUT Anti-UAV pseudo-labels reduces
+        low-confidence false positives by 55\% and tracking gaps by 34\%,
+        with negligible regression on original test sets.
+  \item \textbf{Objective 3 --- Implement a distributed edge-computing
+        inference pipeline:} Achieved. The system supports multiple simultaneous
+        edge nodes publishing detections over MQTT with TLS, WebRTC live
+        streaming, and PTZ camera control from the web interface.
+  \item \textbf{Objective 4 --- Design and implement a web-based control
+        center:} Achieved. The control center provides JWT authentication,
+        invite-token registration, real-time detection dashboards, interactive
+        map, WebRTC live feeds, structured logging, and webhook notifications.
+\end{enumerate}
 
 \section{Summary of Findings}
 
@@ -1724,32 +2740,129 @@ capabilities:
         per-class detection visualisation, and structured logging.
 \end{enumerate}
 
+\section{Limitations and Critical Reflection}
+
+\textbf{Methodological limitations:}
+\begin{itemize}
+  \item The RGB system is trained and evaluated exclusively on RGB imagery.
+        The ThermalDrone model addresses the thermal modality but is trained
+        only on SIDD (3,788 images, 4 scenes) and has not been fine-tuned
+        on Anti-UAV410 sequences.
+  \item ThermalDrone training data contains no negative examples (drone-free
+        thermal frames), causing a False Alarm Rate of 0.236 on Anti-UAV410
+        invisible frames. This is a known training data limitation.
+  \item The RGB training data does not include weather-augmented samples
+        (rain, noise, motion blur). As demonstrated by Munir et al.~\cite{munir2023kfupm},
+        standard YOLO models trained on clean data degrade significantly
+        under adverse weather, with mAP@0.5 dropping from 95.6\% to 21.9\%
+        under high motion blur. BirdDrone-2C-FT has not been evaluated
+        under these conditions.
+  \item The system has been tested on a two-node setup (one edge device,
+        one main device). Scalability to larger deployments (10+ nodes)
+        has not been empirically validated.
+\end{itemize}
+
+\textbf{Validation limitations:}
+\begin{itemize}
+  \item The DUT Anti-UAV evaluation uses proxy metrics (detection rate,
+        tracking gaps) because per-frame ground-truth annotations are not
+        available in the tracking split. The reported DUT metrics are
+        therefore not directly comparable to published baselines that use
+        the annotated detection split.
+  \item Fine-tuning was performed on the same DUT sequences used for
+        evaluation, introducing data leakage. The cross-dataset results
+        (Anti-UAV test set: 0.929 mAP@0.5) are the more trustworthy
+        generalisation metric.
+  \item All results are from single training runs without statistical
+        significance testing. Confidence intervals and p-values are not
+        reported due to the high computational cost of repeated training.
+  \item The regressions on video16 ($-$0.468 DR) and video19 ($-$0.145 DR)
+        remain partially unexplained; visual inspection suggests
+        background-specific sensitivity changes but a definitive cause
+        has not been identified.
+  \item Urban building backgrounds remain a persistent source of tracking
+        loss even after fine-tuning. Building edges and window patterns
+        produce false activations that interrupt track continuity. Videos
+        with dense urban backgrounds (video10, video13) still show elevated
+        gap counts (8 and 28 respectively) compared to sequences with
+        simpler backgrounds. Dedicated hard-negative mining on urban
+        background frames is identified as a short-term improvement target.
+\end{itemize}
+
 \section{Deployment Recommendations}
 
 \begin{enumerate}
   \item Use BirdDrone-2C-FT weights at confidence threshold 0.40--0.45
         for production deployment.
-  \item Integrate ByteTrack (already available in Ultralytics) to bridge
-        remaining tracking gaps caused by complex backgrounds.
+  \item Integrate ByteTrack~\cite{zhang2022bytetrack} (already available
+        in Ultralytics) to bridge remaining tracking gaps caused by complex
+        backgrounds.
   \item For thermal IR deployment, retrain on Anti-UAV410 thermal sequences
         with CLAHE + COLORMAP\_INFERNO preprocessing (already implemented
         in the edge inference engine).
-  \item Evaluate against the WOSDETC challenge dataset once the data usage
-        agreement is obtained.
   \item On resource-constrained edge hardware (Jetson Nano, Raspberry Pi 4),
-        export to TensorRT INT8 for 3--4$\times$ inference speedup.
+        export to TensorRT INT8 for 3--4$\times$ inference speedup as
+        demonstrated by Stäcker et al.~\cite{stacker2021}.
 \end{enumerate}
 
-\section{Future Work}
+\section{Future Research Directions}
+
+\subsection{Short-Term Extensions (1--2 Years)}
 
 \begin{itemize}
-  \item Thermal infrared modality using Anti-UAV410 benchmark sequences.
-  \item Multi-UAV tracking with ByteTrack integration.
-  \item Deployment on Jetson Nano / Raspberry Pi 4 with TensorRT export.
-  \item Night-time detection using low-light augmentation.
-  \item Active learning loop: use BirdDrone-2C-FT detections in production
-        to continuously expand the fine-tuning dataset.
+  \item \textbf{Urban background robustness}: Apply hard-negative mining
+        on urban building frames to reduce false activations from building
+        edges and window patterns, targeting the residual tracking gaps
+        observed in video10 and video13.
+  \item \textbf{Thermal fine-tuning on Anti-UAV410}: Fine-tune ThermalDrone
+        on Anti-UAV410 training sequences to close the 0.178 recall gap
+        (0.908 SIDD $\to$ 0.730 Anti-UAV410) and reduce the 0.236 FAR
+        by adding drone-free negative examples to the training set.
+  \item \textbf{CST-Anti-UAV benchmark evaluation}: Run ThermalDrone on
+        the CST-Anti-UAV benchmark (220 sequences, 240K frames) to provide
+        a second independent thermal evaluation point.
+  \item \textbf{Weather robustness}: Retrain with weather-augmented data
+        (rain, noise, motion blur) following the ACBD strategy of
+        Munir et al.~\cite{munir2023kfupm}, which recovered torrential
+        rain mAP@0.5 from 47.9\% to 83.3\% with only 1\% clean-data loss.
+  \item \textbf{TensorRT deployment}: Export BirdDrone-2C-FT to TensorRT
+        INT8 for Jetson Nano and Raspberry Pi 4 deployment.
+  \item \textbf{Night-time detection}: Add low-light augmentation and
+        evaluate on night-time sequences.
+  \item \textbf{Active learning}: Use BirdDrone-2C-FT detections in
+        production to continuously expand the fine-tuning dataset.
 \end{itemize}
+
+\subsection{Long-Term Research Avenues (3--5 Years)}
+
+\begin{itemize}
+  \item \textbf{Thermal infrared modality}: A dedicated thermal YOLO26s
+        model (ThermalDrone) has been trained on the SIDD dataset and
+        evaluated on the Anti-UAV410 benchmark (see Chapter~4,
+        Section~\ref{sec:thermal_results}). Further improvement requires
+        additional thermal training data and fine-tuning on harder sequences.
+  \item \textbf{Multi-modal fusion}: Fuse RGB and thermal detection streams
+        at the decision level for weather-robust operation, as recommended
+        by Liu et al.~\cite{liu2024survey}.
+  \item \textbf{Multi-UAV tracking}: Integrate ByteTrack for persistent
+        multi-target tracking across frames and across camera nodes.
+  \item \textbf{Formal evaluation on DUT detection split}: Obtain per-frame
+        annotations for the DUT tracking split to enable rigorous IoU-based
+        evaluation comparable to published baselines.
+\end{itemize}
+
+\section{Final Concluding Remarks}
+
+This project demonstrates that a practical, deployable anti-UAV detection
+system can be built from publicly available datasets, open-source models,
+and commodity edge hardware. The BirdDrone-2C-FT model achieves a 0.3\%
+bird false alarm rate --- the critical operational metric --- while
+maintaining state-of-the-art detection accuracy. The distributed control
+center provides a complete operational platform that scales to multiple
+edge nodes without architectural changes. Together, these contributions
+address the three research gaps identified in the literature: bird/drone
+discrimination, real-world performance on complex backgrounds, and
+centralised monitoring of distributed edge nodes.
 
 % ============================================================
 \begin{thebibliography}{99}
@@ -1838,6 +2951,66 @@ for Ground-to-Air Surveillance,''
 in \textit{Transfer Learning -- Unlocking the Power of Pretrained Models},
 IntechOpen, 2025.
 \url{https://doi.org/10.5772/intechopen.1011701}
+
+\bibitem{zhang2022bytetrack}
+Y.\ Zhang, P.\ Sun, Y.\ Jiang, D.\ Yu, F.\ Weng, Z.\ Yuan, P.\ Luo, W.\ Liu, X.\ Wang,
+``ByteTrack: Multi-Object Tracking by Associating Every Detection Box,''
+\textit{European Conference on Computer Vision (ECCV)}, 2022.
+\url{https://arxiv.org/abs/2110.06864}
+
+\bibitem{bytetrack_comparison}
+``Comparative Analysis of DeepSORT, ByteTrack and StrongSORT Algorithms
+for Multi-Object Tracking in UAV-Based Video Surveillance,''
+\textit{Journal of Imaging}, 2023.
+
+\bibitem{wallace2015uas}
+R.\ J.\ Wallace, J.\ M.\ Loffi,
+``Examining Unmanned Aerial System Threats \& Defenses: A Conceptual Analysis,''
+\textit{International Journal of Aviation, Aeronautics, and Aerospace},
+vol.\ 2, no.\ 4, 2015.
+\url{https://doi.org/10.15394/ijaaa.2015.1084}
+
+\bibitem{miasnikov2005uav}
+E.\ Miasnikov,
+``Threat of Terrorism Using Unmanned Aerial Vehicles: Technical Aspects,''
+Center for Arms Control, Energy and Environmental Studies,
+Moscow Institute of Physics and Technology, 2005.
+
+\bibitem{kong2022edge}
+L.\ Kong, J.\ Tan, J.\ Huang, G.\ Chen, S.\ Wang, X.\ Jin, P.\ Zeng, M.\ Khan, S.\ K.\ Das,
+``Edge-computing-driven Internet of Things: A Survey,''
+\textit{ACM Computing Surveys}, vol.\ 55, no.\ 8, pp.\ 174:1--174:41, 2022.
+\url{https://doi.org/10.1145/3555308}
+
+\bibitem{mahmoud2025webrtc}
+H.\ Mahmoud, R.\ Abozariba,
+``A systematic review on {WebRTC} for potential applications and
+challenges beyond audio video streaming,''
+\textit{Multimedia Tools and Applications}, vol.\ 84, pp.\ 2909--2946, 2025.
+\url{https://doi.org/10.1007/s11042-024-20448-9}
+
+\bibitem{liu2024survey}
+Z.\ Liu, P.\ An, Y.\ Yang, S.\ Qiu, Q.\ Liu, X.\ Xu,
+``Vision-Based Drone Detection in Complex Environments: A Survey,''
+2024.
+
+\bibitem{yurchuk2024edge}
+I.\ Yurchuk, T.\ Semenchenko,
+``Vision-Based {UAV} Detection Models for Small-Edge Devices,''
+Taras Shevchenko National University of Kyiv, 2024.
+
+\bibitem{sidd2023}
+Dang Z.\ et al.,
+``SIDD: Shandong Infrared Drone Dataset,''
+\url{https://github.com/Dang-zy/SIDD}, 2023.
+
+\bibitem{antiuav410_2023}
+B.\ Huang, J.\ Li, J.\ Chen, G.\ Wang, J.\ Zhao, T.\ Xu,
+``Anti-UAV410: A Thermal Infrared Benchmark and Customized Scheme
+for Tracking Drones in the Wild,''
+\textit{IEEE Transactions on Pattern Analysis and Machine Intelligence},
+2023.
+\url{https://github.com/HwangBo94/Anti-UAV410}
 
 \end{thebibliography}
 

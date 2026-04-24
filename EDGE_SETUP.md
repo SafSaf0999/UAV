@@ -1,18 +1,10 @@
-# Edge Device Setup (v3)
+# Edge Device Setup
 
-## Network
+See `PROJECT.md` Section 8 for the full edge config reference.
 
-Both devices must be on the same network (phone hotspot, LAN, or WireGuard VPN).
+## Quick Setup
 
-| Device | Role |
-|---|---|
-| Main laptop | Docker stack, control center |
-| Edge laptop | YOLO inference, MQTT publisher |
-| Camera source | IP Webcam app, USB webcam, or RTSP stream |
-
----
-
-## 1. Install dependencies
+### 1. Install dependencies
 
 ```fish
 sudo pacman -S python python-pip tk
@@ -27,26 +19,21 @@ For GPU inference (NVIDIA):
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
----
+### 2. Get the production model
 
-## 2. Get a model file
-
-Use the recommended trained model (weights tracked in git via LFS):
-```fish
-# Already in the repo at:
+The model weights are tracked in the repo via Git LFS:
+```
 UAV-dataset-workflow/training/finetuned/BirdDrone-2C/weights/best.pt
 ```
 
-Or download a placeholder:
+Or use a placeholder:
 ```fish
 python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 ```
 
----
+### 3. Copy CA certificate from main device
 
-## 3. Copy TLS CA certificate from main laptop
-
-v3 uses username/password MQTT auth — you only need the CA cert (no client certs).
+Only the CA cert is needed (no client certs since v3 uses password auth):
 
 ```fish
 mkdir -p ~/Project/UAV-2/UAV/secrets
@@ -54,76 +41,28 @@ scp user@<MAIN_IP>:~/Projects/UAV/UAV/secrets/ca.crt ~/Project/UAV-2/UAV/secrets
 chmod 644 ~/Project/UAV-2/UAV/secrets/ca.crt
 ```
 
----
-
-## 4. Run the launcher
+### 4. Run the launcher
 
 ```fish
-cd ~/Project/UAV-2/UAV
-pkill -f edge.main   # kill any stale processes first
+pkill -f edge.main   # kill stale processes first
 python launcher_edge.py
 ```
 
----
+In the launcher:
+- Set camera URL, main device IP, MQTT username/password, model path
+- Click **Test Connection** to verify MQTT
+- Click **Preview Frame** to verify camera
+- Click **Save Config** → **Start Inference**
 
-## 5. Configure in the launcher UI
+### 5. Verify
 
-| Field | Value |
-|---|---|
-| Camera URL | `http://<camera-ip>:8080/video` (IP Webcam) or `/dev/video0` (USB) |
-| IP Webcam URL | `http://<phone-ip>:8080` (optional — enables remote camera controls) |
-| Main Device IP | IP of the main laptop on the shared network |
-| MQTT Port | `8883` |
-| Username | `edge-01` (or your device ID) |
-| Password | MQTT password set in `docker/.env` → `MQTT_PASSWORD_FILE` |
-| Model .pt path | Path to `BirdDrone-2C-FT/weights/best.pt` |
-| Active model name | `BirdDrone-2C-FT` |
-| Device ID | `edge-01` |
-| Latitude / Longitude | Your deployment coordinates |
-| Signaling URL | `ws://<MAIN_IP>:8090` |
-
-Click **Test Connection** to verify MQTT, **Preview Frame** to verify camera, then **Save Config** → **Start Inference**.
-
----
-
-## 6. Verify connection
-
-On the main laptop, open `http://localhost:8080` — the edge device should appear on the Dashboard and Map within a few seconds.
-
-Check MQTT broker logs:
-```fish
-docker compose -f docker/docker-compose.yml logs mosquitto -f
-```
-
-A successful connection looks like:
-```
-New client connected from <EDGE_IP> as edge-01
-```
-
----
+On the main device, open `http://localhost:8080` — the edge device should appear on the Dashboard and Map within a few seconds.
 
 ## Regenerating certs (if main device IP changes)
 
-Run on the main laptop:
 ```fish
-FORCE=1 SERVER_IP="<MAIN_IP>" bash certs/gen_certs.sh
-docker compose -f docker/docker-compose.yml restart mosquitto
+# On main device
+FORCE=1 SERVER_IP="<NEW_IP>" bash certs/gen_certs.sh
+sudo docker compose -f docker/docker-compose.yml restart mosquitto
 scp secrets/ca.crt mubarak@<EDGE_IP>:~/Project/UAV-2/UAV/secrets/
-```
-
----
-
-## PTZ Follow (multi-device)
-
-To make this edge device follow another device's detections, add to `edge/config.yaml`:
-```yaml
-ptz:
-  enabled: true
-  hardware_type: digital
-  follow_leader: edge-01   # device_id of the leader
-```
-
-Test without hardware using the simulator:
-```fish
-python edge/edge_sim.py --host <MAIN_IP> --username edge-sim --password secret --device-id edge-sim
 ```
