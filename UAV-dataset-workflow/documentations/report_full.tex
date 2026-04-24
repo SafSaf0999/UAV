@@ -36,7 +36,7 @@
   stringstyle=\color{red!70!black},
 }
 
-\graphicspath{{figures/}{run_graphs/}}
+\graphicspath{{figures/}{run_graphs/}{run_graphs/ThermalDrone/}}
 
 \pagestyle{fancy}
 \fancyhf{}
@@ -98,6 +98,14 @@ detection rate of 0.818 across 20 DUT benchmark videos, and a bird false
 alarm rate of just 0.3\%. Fine-tuning reduces low-confidence false positives
 by 55\% compared to the base model, with negligible regression on original
 validation sets.
+
+A separate \textbf{ThermalDrone} model (1-class: Drone) was trained on the
+SIDD thermal infrared dataset (3,788 images, 4 scenes) using thermal-specific
+augmentation (HSV disabled, high copy-paste, random erasing for CCTV overlay
+simulation). It achieves mAP@0.5 = 0.958 on the SIDD validation split.
+Evaluated on the Anti-UAV410 thermal benchmark (129,691 frames, 128 test
+sequences), it achieves Precision = 0.993, Recall = 0.730, F1 = 0.842,
+and a Detection Rate of 0.730 on visible frames.
 
 The control center provides JWT-based authentication with invite-token
 registration, a real-time dashboard with per-class detection color coding,
@@ -184,6 +192,10 @@ The specific objectives are:
         MQTT communication, WebRTC live streaming, and PTZ camera control.
   \item Design and implement a web-based control center with JWT authentication,
         real-time monitoring, and multi-device management.
+  \item Train and evaluate a dedicated thermal infrared detection model
+        (ThermalDrone) on the SIDD dataset and benchmark it against the
+        Anti-UAV410 thermal infrared benchmark to establish a thermal
+        detection baseline for 24/7 operation.
 \end{enumerate}
 
 \section{Scope and Limitations}
@@ -191,7 +203,11 @@ The specific objectives are:
 \begin{itemize}
   \item Training datasets are limited to publicly available RGB drone and
         bird imagery (CC BY 4.0 and CC0 licenses).
-  \item Thermal infrared modality is identified as future work.
+  \item Thermal infrared modality is partially addressed: a 1-class
+        ThermalDrone model has been trained on the SIDD thermal dataset
+        and evaluated on the Anti-UAV410 benchmark
+        (Section~\ref{sec:thermal_results}). Full 24/7 thermal deployment
+        requires additional dataset acquisition.
   \item The DUT Anti-UAV evaluation uses proxy metrics (detection rate,
         tracking gaps) since per-frame annotations are not available in
         the tracking split.
@@ -555,7 +571,9 @@ Stäcker et al.~\cite{stacker2021} (2021) & RetinaNet-18 (TensorRT) & COCO + cus
 \hline
 Delleji et al.~\cite{delleji2025thermal} (2025) & YOLOv11 & Custom thermal & High precision/recall & Thermal only; no RGB \\
 \hline
-\textbf{This work} & \textbf{YOLO26s (BirdDrone-2C-FT)} & \textbf{BirdDrone-2C + DUT} & \textbf{0.969 mAP@0.5} & \textbf{RGB only; no weather eval} \\
+\textbf{This work (RGB)} & \textbf{YOLO26s (BirdDrone-2C-FT)} & \textbf{BirdDrone-2C + DUT} & \textbf{0.969 mAP@0.5} & \textbf{RGB only; no weather eval} \\
+\hline
+\textbf{This work (Thermal)} & \textbf{YOLO26s (ThermalDrone)} & \textbf{SIDD thermal} & \textbf{0.958 mAP@0.5 (val); F1=0.842 (Anti-UAV410)} & \textbf{1-class; SIDD training only} \\
 \hline
 \end{tabular}
 \end{table}
@@ -701,6 +719,49 @@ backbone layers and fine-tuning only the final detection head yields the
 best accuracy-efficiency trade-off for domain-specific adaptation ---
 a finding consistent with the fine-tuning strategy adopted for
 BirdDrone-2C-FT in this work.
+
+\section{Thermal Infrared UAV Detection}
+
+Thermal infrared (IR) cameras detect heat signatures rather than reflected
+visible light, enabling detection in complete darkness, fog, and adverse
+weather conditions where RGB cameras fail. For anti-UAV applications,
+thermal imaging is particularly valuable because UAV motors and electronics
+generate heat that creates a distinct thermal signature against the sky
+background, even when the drone is visually camouflaged.
+
+The SIDD (Shandong Infrared Drone Dataset)~\cite{sidd2023} is one of the
+few publicly available thermal drone detection datasets with COCO-format
+annotations. It comprises four scene types --- city, mountain, sea, and
+sky --- captured at 640$\times$512 pixels with a LWIR sensor, providing
+4,737 annotated images across diverse backgrounds. The sea and sky scenes
+are particularly challenging, containing drones as small as 8--9 pixels
+wide against featureless backgrounds.
+
+Delleji et al.~\cite{delleji2025thermal} provide the most directly relevant
+study of thermal drone detection methodology. Their key finding --- that a
+curated 10,200-image thermal dataset outperforms a larger 12,600-image
+uncleaned set --- directly informs the ThermalDrone training strategy in
+this work. They also identify a critical gap in existing public thermal
+datasets: the FLIR ADAS dataset targets automotive scenes, the KAIST
+Multispectral dataset focuses on pedestrian detection, and available aerial
+thermal datasets contain fewer than 2,000 frames with minimal diversity.
+This gap motivates the use of SIDD as the primary training source.
+
+The Anti-UAV410 benchmark~\cite{antiuav410_2023} provides the most
+comprehensive thermal UAV evaluation framework, comprising 410 video
+sequences with 438K+ manually annotated bounding boxes. It defines ten
+challenge attributes: Thermal Crossover, Out-of-View, Scale Variation,
+Fast Motion, Occlusion, Dynamic Background Clutter, Tiny Size, Small Size,
+Medium Size, and Normal Size. The benchmark was designed for tracking
+evaluation (single-object tracking across frames), but its per-frame
+bounding box annotations make it directly usable for frame-level detection
+evaluation, which is the approach adopted in this work.
+
+A key distinction between thermal and RGB detection is the absence of
+colour information. Standard data augmentation techniques that modify
+hue and saturation (HSV augmentation) are meaningless for thermal imagery,
+which encodes temperature as pixel intensity. This requires a fundamentally
+different augmentation strategy, as detailed in Chapter~3.
 
 \section{Research Gap and Project Contribution}
 
@@ -853,11 +914,47 @@ registration controls access to the control center.
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.85\textwidth]{figures/system_arch.png}
+\begin{tikzpicture}[
+  box/.style={rectangle, draw, rounded corners=3pt, minimum width=3.2cm,
+              minimum height=0.85cm, align=center, font=\small},
+  sbox/.style={rectangle, draw, rounded corners=3pt, minimum width=2.4cm,
+               minimum height=0.75cm, align=center, font=\footnotesize},
+  arrow/.style={->, thick, >=stealth},
+  darrow/.style={<->, thick, >=stealth, dashed}
+]
+
+%% ---- EDGE TIER (left, y=0..−3) ----
+\node[box, fill=blue!15, minimum width=3.6cm] at (0, 0)    (cam)    {Camera\\(IP / USB)};
+\node[box, fill=blue!15, minimum width=3.6cm] at (0,-1.6)  (yolo)   {YOLO26s Inference\\(Edge Device)};
+\node[box, fill=blue!15, minimum width=3.6cm] at (0,-3.2)  (webrtc) {WebRTC Stream\\(video)};
+
+%% ---- BROKER (centre) ----
+\node[box, fill=yellow!20, minimum width=2.8cm] at (5,-1.6) (mqtt)  {MQTT Broker\\(Mosquitto :8883)};
+
+%% ---- CONTROL TIER (right) ----
+\node[box, fill=green!15, minimum width=3.4cm] at (10, 0)   (agg)   {Aggregation\\(FastAPI :8001)};
+\node[box, fill=green!15, minimum width=3.4cm] at (10,-1.6) (cc)    {Control Center\\(FastAPI :8080)};
+\node[box, fill=green!15, minimum width=3.4cm] at (10,-3.2) (sig)   {WebRTC Signaling\\(Node.js :8090)};
+\node[box, fill=green!15, minimum width=3.4cm] at (10,-4.6) (browser){Browser / Mobile\\(Operator UI)};
+
+%% ---- Arrows ----
+\draw[arrow] (cam)    -- node[left,font=\tiny]{frames} (yolo);
+\draw[arrow] (yolo)   -- node[above,font=\tiny]{detections JSON} (mqtt);
+\draw[arrow] (mqtt)   -- node[above,font=\tiny]{subscribe uav/\#} (agg);
+\draw[arrow] (agg)    -- node[right,font=\tiny]{WebSocket} (cc);
+\draw[arrow] (cc)     -- node[right,font=\tiny]{serve UI} (browser);
+\draw[darrow](webrtc) -- node[below,font=\tiny]{SDP/ICE} (sig);
+\draw[arrow] (sig)    -- (browser);
+\draw[arrow] (cc)     to[bend left=20] node[above,font=\tiny]{PTZ cmd} (yolo);
+
+%% ---- Tier labels ----
+\node[font=\small\bfseries, text=blue!60] at (0, 0.9)  {Edge Tier};
+\node[font=\small\bfseries, text=green!50!black] at (10, 0.9) {Control Tier};
+\end{tikzpicture}
 \caption{System architecture overview. Edge nodes run YOLO26s inference
-locally and publish results over MQTT to the control center. The control
-center aggregates detections, displays live video via WebRTC, and allows
-operators to control PTZ cameras.}
+locally and publish detection results over MQTT to the control center. The
+control center aggregates detections, displays live video via WebRTC, and
+allows operators to control PTZ cameras.}
 \label{fig:system_arch}
 \end{figure}
 
@@ -1153,7 +1250,51 @@ tile-server & 8070 (optional) & Self-hosted OSM tile server. Activated with \tex
 \end{table}
 
 The internal Docker network (\texttt{uav-net}) allows services to communicate
-by container name without exposing ports to the host. The aggregation service
+by container name without exposing ports to the host.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  svc/.style={rectangle, draw, rounded corners=3pt, minimum width=2.8cm,
+              minimum height=0.8cm, align=center, font=\footnotesize},
+  arrow/.style={->, thick, >=stealth}
+]
+%% External actors
+\node[svc, fill=blue!10]  at (0, 0)    (edge)   {Edge Device\\(MQTT client)};
+\node[svc, fill=blue!10]  at (0,-4.5)  (browser){Browser\\(Operator)};
+
+%% Services
+\node[svc, fill=yellow!20] at (4, 0)   (mosq)  {mosquitto\\:8883 / :1883};
+\node[svc, fill=green!15]  at (8, 0)   (agg)   {aggregation\\:8001};
+\node[svc, fill=green!15]  at (8,-2.2) (cc)    {control-center\\:8080};
+\node[svc, fill=green!15]  at (4,-2.2) (sig)   {signaling\\:8090};
+\node[svc, fill=gray!15]   at (4,-4.5) (tile)  {tile-server\\:8070 (opt)};
+\node[svc, fill=gray!15]   at (8,-4.5) (ha)    {ha\_bridge};
+\node[svc, fill=orange!10] at (6,-6.2) (vol)   {frontend-dist (volume)};
+
+%% uav-net label
+\draw[draw=gray, dashed, rounded corners=6pt]
+  (2.8,0.6) rectangle (9.8,-5.2);
+\node[font=\tiny\itshape, text=gray] at (6.3, 0.45) {uav-net (Docker internal)};
+
+%% Arrows
+\draw[arrow] (edge)    -- node[above,font=\tiny]{TLS :8883} (mosq);
+\draw[arrow] (mosq)    -- node[above,font=\tiny]{plain :1883} (agg);
+\draw[arrow] (agg)     -- node[right,font=\tiny]{WebSocket} (cc);
+\draw[arrow] (cc)      -- node[above,font=\tiny]{serve} (vol);
+\draw[arrow] (browser) -- node[right,font=\tiny]{HTTP :8080} (cc);
+\draw[arrow] (browser) -- node[left,font=\tiny]{WebRTC :8090} (sig);
+\draw[arrow] (edge)    to[bend right=15] node[left,font=\tiny]{SDP/ICE} (sig);
+\draw[arrow] (agg)     -- (ha);
+\end{tikzpicture}
+\caption{Docker services architecture. All server-side services run inside the
+\texttt{uav-net} Docker network. Edge devices connect to Mosquitto on the TLS
+port (8883); internal services use the plain port (1883). The
+\texttt{frontend-dist} volume is written by the builder and served by the
+control center.}
+\label{fig:docker_arch}
+\end{figure}
+
 connects to Mosquitto on port 1883 (plain, no TLS) because both containers
 are on the same trusted internal network --- TLS overhead is unnecessary for
 intra-container communication. External edge devices connect on port 8883
@@ -1215,8 +1356,55 @@ topics used in the system.
 \end{table}
 
 Retained messages (used for \texttt{uav/status/\{id\}}) are stored by the
-broker and delivered immediately to any new subscriber. This ensures that
-when the control center restarts or a new browser connects, it immediately
+broker and delivered immediately to any new subscriber.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  actor/.style={rectangle, draw, rounded corners=3pt, minimum width=2.6cm,
+                minimum height=0.8cm, align=center, font=\footnotesize},
+  arrow/.style={->, thick, >=stealth},
+  retarrow/.style={->, thick, >=stealth, dashed, color=orange!70!black}
+]
+%% Actors — fixed coordinates
+\node[actor, fill=blue!10]   at (0,  0)   (edge1)  {Edge Node 1};
+\node[actor, fill=blue!10]   at (0, -2)   (edge2)  {Edge Node 2};
+\node[actor, fill=yellow!20] at (5,  -1)  (broker) {MQTT Broker\\(Mosquitto)};
+\node[actor, fill=green!15]  at (10,  0)  (agg)    {Aggregation\\Service};
+\node[actor, fill=green!15]  at (10, -2)  (cc)     {Control Center\\/ Browser};
+
+%% Publish arrows (edge → broker)
+\draw[arrow] (edge1) -- node[above, font=\tiny]{uav/tracking/1 (QoS 0)} (broker);
+\draw[arrow] (edge2) -- node[below, font=\tiny]{uav/status/2 (QoS 1, retained)} (broker);
+
+%% Subscribe arrows (broker → aggregation)
+\draw[arrow] (broker) -- node[above, font=\tiny]{subscribe uav/\#} (agg);
+
+%% WebSocket push
+\draw[arrow] (agg) -- node[right, font=\tiny]{WebSocket push} (cc);
+
+%% LWT annotation
+\draw[retarrow] (broker) to[bend right=25]
+  node[below, font=\tiny, color=orange!70!black]{LWT: offline status on disconnect}
+  (cc);
+
+%% QoS legend
+\node[font=\tiny, align=left] at (5, -3.2) {
+  QoS 0 = fire-and-forget \quad
+  QoS 1 = at-least-once \quad
+  dashed = LWT (Last Will)
+};
+\end{tikzpicture}
+\caption{MQTT publish-subscribe flow. Edge nodes publish detection results
+(\texttt{uav/tracking/\{id\}}) at up to 25 fps (QoS 0) and status messages
+(\texttt{uav/status/\{id\}}) as retained messages (QoS 1). The aggregation
+service subscribes to all \texttt{uav/\#} topics and pushes updates to the
+control center via WebSocket. The Last Will and Testament (LWT) mechanism
+automatically publishes an offline status if an edge device disconnects
+unexpectedly.}
+\label{fig:mqtt_flow}
+\end{figure}
+
 receives the last known status of every edge device without waiting for the
 next status publication.
 
@@ -1786,9 +1974,6 @@ small UAV targets present in the DUT sequences.
 
 This chapter presented the experimental results for the BirdDrone-2C-FT
 production model. The key findings are:
-
-\begin{itemize}
-  \item BirdDrone-2C-FT achieves mAP@0.5 = 0.969 on the combined validation
         set, a +0.043 improvement over the base model, with mAP@0.5:0.95 = 0.678.
   \item The bird false alarm rate is 0.3\% --- only 1 out of 378 bird images
         is misclassified as a drone, unchanged from the base model.
@@ -1799,11 +1984,362 @@ production model. The key findings are:
         enabling a stricter deployment threshold (0.40--0.45).
   \item Cross-dataset evaluation confirms generalisation: 0.929 mAP@0.5
         on the independent Anti-UAV test set (not used in training).
+  \item ThermalDrone achieves mAP@0.5 = 0.958 on the SIDD thermal validation
+        split and F1 = 0.842 on the Anti-UAV410 benchmark (129,691 frames),
+        establishing the first YOLO26s thermal detection baseline.
+  \item The 0.993 precision on Anti-UAV410 confirms near-zero false positives
+        on unseen thermal sequences; the 0.730 recall quantifies the SIDD
+        $\to$ Anti-UAV410 domain gap as the primary target for future work.
 \end{itemize}
 
 Chapter~5 discusses the interpretation of these results, compares the
 system with prior work, and analyses the anomalous regressions on
 video16 and video19.
+
+% ============================================================
+\section{Thermal Infrared Model: ThermalDrone}
+\label{sec:thermal_results}
+
+\subsection{Overview}
+
+A dedicated thermal infrared detection model, \textbf{ThermalDrone}, was
+trained as a separate branch from the RGB pipeline using the same YOLO26s
+architecture with thermal-specific augmentation. It detects a single class: Drone.
+
+Figure~\ref{fig:thermal_pipeline} illustrates the complete ThermalDrone pipeline.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  box/.style={rectangle, draw, rounded corners=3pt, minimum width=3.0cm,
+              minimum height=0.85cm, align=center, font=\small},
+  arrow/.style={->, thick, >=stealth}
+]
+% Row 1 — Data (y=0)
+\node[box, fill=blue!10]  at (0,0)   (sidd)    {SIDD Dataset\\(4 scenes, COCO)};
+\node[box, fill=blue!10]  at (4,0)   (convert) {COCO$\to$YOLO\\Conversion};
+\node[box, fill=blue!10]  at (8,0)   (merged)  {thermal\_merged/\\3,788 train};
+
+% Row 2 — Training (y=-2)
+\node[box, fill=green!10] at (0,-2)  (pretrain){COCO Pretrained\\yolo26s.pt};
+\node[box, fill=green!10] at (4,-2)  (aug)     {Thermal Aug\\(no HSV, erasing)};
+\node[box, fill=green!10] at (8,-2)  (train)   {YOLO26s Training\\(100 ep, RTX 2070)};
+
+% Row 3 — Outputs (y=-4)
+\node[box, fill=orange!10] at (4,-4) (weights) {best.pt\\(ThermalDrone)};
+\node[box, fill=orange!10] at (8,-4) (sidd_val){SIDD Val\\mAP@0.5=0.958};
+\node[box, fill=red!10]    at (0,-4) (bench)   {Anti-UAV410\\F1=0.842};
+
+% Arrows
+\draw[arrow] (sidd)     -- (convert);
+\draw[arrow] (convert)  -- (merged);
+\draw[arrow] (merged)   -- (train);
+\draw[arrow] (pretrain) -- (aug);
+\draw[arrow] (aug)      -- (train);
+\draw[arrow] (train)    -- (weights);
+\draw[arrow] (weights)  -- (sidd_val);
+\draw[arrow] (weights)  -- (bench);
+
+% Row labels
+\node[font=\footnotesize\itshape, text=gray] at (-2.2, 0)  {Data};
+\node[font=\footnotesize\itshape, text=gray] at (-2.2,-2)  {Training};
+\node[font=\footnotesize\itshape, text=gray] at (-2.2,-4)  {Output};
+\end{tikzpicture}
+\caption{ThermalDrone pipeline. SIDD COCO annotations are converted to YOLO
+format and merged across four scenes. Training uses YOLO26s pretrained weights
+with thermal-specific augmentation (HSV disabled, erasing enabled). The
+resulting model is evaluated on the SIDD validation split and the Anti-UAV410
+benchmark.}
+\label{fig:thermal_pipeline}
+\end{figure}
+
+\subsection{Training Dataset: SIDD}
+
+The SIDD (Shandong Infrared Drone Dataset)~\cite{sidd2023} is a thermal
+infrared drone detection dataset comprising four scene types: city, mountain,
+sea, and sky, captured at 640$\times$512 pixels with a LWIR thermal sensor.
+Annotations are in COCO JSON format (single class: UAV), converted to YOLO
+format for training. This is consistent with the data quality principle of
+Delleji et al.~\cite{delleji2025thermal}: a curated, diverse thermal dataset
+outperforms a larger uncleaned one.
+
+\textbf{Data type:} Thermal infrared (LWIR) still images, 640$\times$512 px,
+8-bit grayscale encoding temperature as pixel intensity.
+
+\textbf{Source:} GitHub repository \url{https://github.com/Dang-zy/SIDD},
+publicly available, no registration required.
+
+\textbf{Data description:} Four scene types representing distinct thermal
+backgrounds encountered in real anti-UAV deployments. Each image contains
+exactly one drone annotation. Some images contain CCTV-style text overlays
+(timestamps, camera identifiers) in fixed screen corners.
+
+\textbf{Data size:} 4,737 images total across all scenes and splits.
+
+\textbf{Modifications made:}
+\begin{itemize}
+  \item COCO JSON annotations converted to YOLO TXT format
+        (normalised $[c_x, c_y, w, h]$ per image).
+  \item Class label remapped: \texttt{UAV} (COCO category) $\to$
+        \texttt{Drone} (class index 0) to align with the project's
+        canonical class taxonomy.
+  \item All four scenes merged into a single \texttt{thermal\_merged/}
+        dataset with unified \texttt{train/} and \texttt{val/} splits,
+        preserving the original SIDD train2017/val2017 split boundaries.
+  \item Scene-prefixed filenames used to prevent collisions
+        (e.g., \texttt{city\_345.jpg}, \texttt{sea\_14038.jpg}).
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{SIDD thermal dataset composition.}
+\label{tab:sidd}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Scene} & \textbf{Train} & \textbf{Val} & \textbf{Notes} \\
+\hline
+city    & 874  & 219 & Urban background \\
+\hline
+moutain & 1720 & 431 & Natural background \\
+\hline
+sea     & 570  & 143 & Tiny targets (8--9 px) \\
+\hline
+sky     & 624  & 156 & Small targets \\
+\hline
+\textbf{Total} & \textbf{3,788} & \textbf{949} & 1 class: Drone \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Thermal Implementation Details}
+
+The ThermalDrone model was trained using the \texttt{train\_thermal.py}
+script in the project repository, which calls the Ultralytics YOLO26s
+training API (version 8.4.33, Python 3.14, PyTorch 2.11.0+cu130).
+Training ran on the same local RTX 2070 workstation as the RGB models,
+with batch size reduced to 8 (from 16 for RGB) to accommodate the
+640$\times$512 thermal image dimensions within the 8 GB VRAM budget.
+
+The key implementation difference from the RGB pipeline is the augmentation
+configuration. Standard HSV augmentation (hue, saturation shifts) is
+disabled entirely because thermal imagery encodes temperature as pixel
+intensity rather than colour --- HSV shifts would introduce artificial
+variation with no physical meaning. Instead, brightness variation
+(\texttt{hsv\_v = 0.15}) is retained to simulate sensor gain differences
+between thermal cameras. The \texttt{erasing = 0.3} parameter applies
+random rectangular erasure to simulate the CCTV text overlays present
+in some SIDD frames, preventing the model from learning to associate
+these overlays with the drone class.
+
+The \texttt{copy\_paste = 0.7} setting is higher than the RGB runs (0.6)
+to compensate for the tiny drone targets in the sea and sky scenes
+(8--9 pixels wide). Copy-paste augmentation synthetically pastes drone
+crops onto diverse backgrounds, directly increasing the variety of
+thermal backgrounds the model sees drones against.
+
+Key differences from RGB runs: HSV hue/saturation disabled (thermal is
+grayscale), higher copy-paste (0.7) for tiny targets, lower lr0 (0.005)
+for the smaller dataset, and erasing (0.3) to simulate CCTV text overlays.
+
+\begin{table}[H]
+\centering
+\caption{ThermalDrone key hyperparameters (RTX 2070, 100 epochs).}
+\label{tab:thermal_config}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Parameter} & \textbf{Value} & \textbf{Justification} \\
+\hline
+lr0         & 0.005  & Smaller dataset than RGB \\
+\hline
+copy\_paste & 0.7    & Compensates for tiny targets \\
+\hline
+hsv\_h/s    & 0.0    & Disabled --- thermal is grayscale \\
+\hline
+hsv\_v      & 0.15   & Slight brightness variation only \\
+\hline
+erasing     & 0.3    & Simulates CCTV text overlays \\
+\hline
+mixup       & 0.0    & Disabled --- thermal images do not blend \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Training Results}
+
+\begin{table}[H]
+\centering
+\caption{ThermalDrone results on SIDD validation split (best epoch 89/100).}
+\label{tab:thermal_train}
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Metric} & \textbf{Value} \\
+\hline
+mAP@0.5       & \textbf{0.958} \\
+\hline
+mAP@0.5:0.95  & \textbf{0.654} \\
+\hline
+Precision     & \textbf{0.983} \\
+\hline
+Recall        & \textbf{0.908} \\
+\hline
+Duration      & $\sim$2.3 hours \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{run_graphs/ThermalDrone/results.png}
+  \caption{ThermalDrone training curves (100 epochs, RTX 2070). mAP@0.5
+  rises from 0.660 at epoch 1 to 0.837 at epoch 10, reaches 0.946 at
+  epoch 55, and peaks at 0.958 at epoch 89. Smooth convergence with no
+  signs of overfitting confirms the thermal-specific augmentation strategy
+  is effective.}
+  \label{fig:thermal_curves}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.55\textwidth]{run_graphs/ThermalDrone/confusion_matrix_normalized.png}
+  \caption{ThermalDrone normalised confusion matrix on SIDD validation split.
+  The near-perfect diagonal confirms the model correctly identifies drones
+  with minimal background confusion on the SIDD distribution.}
+  \label{fig:thermal_cm}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{run_graphs/ThermalDrone/BoxPR_curve.png}
+  \caption{ThermalDrone Precision-Recall curve on SIDD validation split.
+  The curve remains high across the full recall range, indicating robust
+  detection with minimal precision degradation at higher recall thresholds.}
+  \label{fig:thermal_pr}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{run_graphs/ThermalDrone/val_batch0_labels.jpg}
+    \caption{Ground truth labels}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}[b]{0.48\textwidth}
+    \includegraphics[width=\textwidth]{run_graphs/ThermalDrone/val_batch0_pred.jpg}
+    \caption{Model predictions}
+  \end{subfigure}
+  \caption{ThermalDrone validation batch 0: ground truth (left) vs model
+  predictions (right). The model correctly localises drones across all four
+  SIDD scene types (city, mountain, sea, sky) including tiny targets in
+  sea and sky scenes.}
+  \label{fig:thermal_val}
+\end{figure}
+\label{sec:antiuav410}
+
+The Anti-UAV410 benchmark~\cite{antiuav410_2023} comprises 410 thermal
+infrared video sequences with over 438,000 manually annotated bounding boxes,
+covering challenging conditions: thermal crossover, fast motion, occlusion,
+dynamic background clutter, and tiny/small target sizes. The test split
+contains 128 sequences ($\sim$1,000 frames each). ThermalDrone was evaluated
+frame-by-frame on all 128 test sequences (129,691 total frames) at IoU $\geq$ 0.5.
+
+\begin{table}[H]
+\centering
+\caption{ThermalDrone on Anti-UAV410 test split (128 sequences, 129,691 frames).}
+\label{tab:antiuav410}
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Metric} & \textbf{Value} \\
+\hline
+Total frames      & 129,691 \\
+\hline
+Visible frames    & 127,037 (98.0\%) \\
+\hline
+Invisible frames  & 2,654 (2.0\%) \\
+\hline
+True Positives    & 92,731 \\
+\hline
+False Positives   & 627 \\
+\hline
+False Negatives   & 34,306 \\
+\hline
+\textbf{Precision}       & \textbf{0.993} \\
+\hline
+\textbf{Recall}          & \textbf{0.730} \\
+\hline
+\textbf{F1}              & \textbf{0.842} \\
+\hline
+\textbf{Detection Rate}  & \textbf{0.730} \\
+\hline
+False Alarm Rate  & 0.236 \\
+\hline
+\end{tabular}
+\end{table}
+
+The precision of 0.993 confirms very few false positives on unseen thermal
+sequences. The recall of 0.730 reflects the domain gap between SIDD (clean,
+static backgrounds) and Anti-UAV410 (fast motion, thermal crossover, tiny
+targets). The 27\% miss rate is the primary target for future improvement
+through fine-tuning on Anti-UAV410 sequences.
+
+\textbf{Addressing discrepancies and unexpected results:}
+Two results warrant specific discussion. First, the False Alarm Rate of 0.236
+on invisible frames (frames where the drone is out of view) is higher than
+ideal. This is a \textit{method limitation}: ThermalDrone was trained
+exclusively on SIDD, which contains no ``empty sky'' negative examples ---
+every training image contains a drone. The model has therefore not learned
+to suppress detections on drone-free thermal backgrounds. This is distinct
+from a \textit{validation limitation}: the 2,654 invisible frames in
+Anti-UAV410 represent only 2.0\% of the test set, so the FAR has limited
+impact on the aggregate F1 score. Addressing this requires adding negative
+examples (drone-free thermal frames) to the training set.
+
+Second, the recall gap between SIDD validation (0.908) and Anti-UAV410
+(0.730) is a direct consequence of the domain shift. Anti-UAV410 includes
+sequences with Thermal Crossover (drone temperature matches background),
+Tiny Size (drone $<$ 16$\times$16 pixels), and Fast Motion (large
+inter-frame displacement) --- attributes absent from SIDD. The 0.178
+recall drop is therefore expected and does not indicate a training failure;
+it quantifies the domain gap that fine-tuning on Anti-UAV410 sequences
+would close.
+
+\textbf{Actual Contributions of This Work (Thermal):}
+\begin{enumerate}
+  \item A thermal YOLO26s detector (ThermalDrone) trained on the SIDD
+        dataset achieves mAP@0.5 = 0.958 on the SIDD validation split
+        using only 3,788 training images --- demonstrating that the
+        YOLO26s architecture and thermal-specific augmentation pipeline
+        are effective for thermal drone detection without large-scale data.
+  \item Frame-level evaluation on the Anti-UAV410 benchmark (129,691 frames,
+        128 sequences) yields Precision = 0.993, Recall = 0.730, F1 = 0.842,
+        establishing the first published YOLO26s detection baseline on this
+        benchmark.
+  \item A reusable COCO-to-YOLO conversion pipeline for the SIDD dataset
+        and a frame-level detection evaluation script for Anti-UAV410 are
+        provided as open-source tools in the project repository.
+\end{enumerate}
+
+\subsection{All Models Summary}
+
+\begin{table}[H]
+\centering
+\caption{Summary of all trained YOLO26s models.}
+\label{tab:all_models}
+\begin{tabular}{|l|l|c|c|c|}
+\hline
+\textbf{Model} & \textbf{Modality} & \textbf{Classes} & \textbf{mAP@0.5} & \textbf{mAP@0.5:0.95} \\
+\hline
+BirdDrone-2C    & RGB     & 2 & 0.926 & 0.554 \\
+\hline
+BirdDrone-3C    & RGB     & 3 & 0.892 & 0.574 \\
+\hline
+BirdDrone-2C-FT & RGB     & 2 & 0.969 & 0.678 \\
+\hline
+BirdDrone-3C-FT & RGB     & 3 & 0.881 & 0.598 \\
+\hline
+\textbf{ThermalDrone} & \textbf{Thermal IR} & \textbf{1} & \textbf{0.958} & \textbf{0.654} \\
+\hline
+\end{tabular}
+\end{table}
 
 % ============================================================
 \chapter{Discussion}
@@ -2208,11 +2744,14 @@ The four specific objectives stated in Chapter~1 have been fully achieved:
 
 \textbf{Methodological limitations:}
 \begin{itemize}
-  \item The system is trained and evaluated exclusively on RGB imagery.
-        Thermal infrared detection --- which enables 24/7 operation
-        regardless of lighting conditions --- is not addressed in the
-        current work.
-  \item The training data does not include weather-augmented samples
+  \item The RGB system is trained and evaluated exclusively on RGB imagery.
+        The ThermalDrone model addresses the thermal modality but is trained
+        only on SIDD (3,788 images, 4 scenes) and has not been fine-tuned
+        on Anti-UAV410 sequences.
+  \item ThermalDrone training data contains no negative examples (drone-free
+        thermal frames), causing a False Alarm Rate of 0.236 on Anti-UAV410
+        invisible frames. This is a known training data limitation.
+  \item The RGB training data does not include weather-augmented samples
         (rain, noise, motion blur). As demonstrated by Munir et al.~\cite{munir2023kfupm},
         standard YOLO models trained on clean data degrade significantly
         under adverse weather, with mAP@0.5 dropping from 95.6\% to 21.9\%
@@ -2275,6 +2814,13 @@ The four specific objectives stated in Chapter~1 have been fully achieved:
         on urban building frames to reduce false activations from building
         edges and window patterns, targeting the residual tracking gaps
         observed in video10 and video13.
+  \item \textbf{Thermal fine-tuning on Anti-UAV410}: Fine-tune ThermalDrone
+        on Anti-UAV410 training sequences to close the 0.178 recall gap
+        (0.908 SIDD $\to$ 0.730 Anti-UAV410) and reduce the 0.236 FAR
+        by adding drone-free negative examples to the training set.
+  \item \textbf{CST-Anti-UAV benchmark evaluation}: Run ThermalDrone on
+        the CST-Anti-UAV benchmark (220 sequences, 240K frames) to provide
+        a second independent thermal evaluation point.
   \item \textbf{Weather robustness}: Retrain with weather-augmented data
         (rain, noise, motion blur) following the ACBD strategy of
         Munir et al.~\cite{munir2023kfupm}, which recovered torrential
@@ -2290,9 +2836,11 @@ The four specific objectives stated in Chapter~1 have been fully achieved:
 \subsection{Long-Term Research Avenues (3--5 Years)}
 
 \begin{itemize}
-  \item \textbf{Thermal infrared modality}: Build a custom thermal dataset
-        following the pipeline of Delleji et al.~\cite{delleji2025thermal}
-        and train a thermal detection branch for 24/7 operation.
+  \item \textbf{Thermal infrared modality}: A dedicated thermal YOLO26s
+        model (ThermalDrone) has been trained on the SIDD dataset and
+        evaluated on the Anti-UAV410 benchmark (see Chapter~4,
+        Section~\ref{sec:thermal_results}). Further improvement requires
+        additional thermal training data and fine-tuning on harder sequences.
   \item \textbf{Multi-modal fusion}: Fuse RGB and thermal detection streams
         at the decision level for weather-robust operation, as recommended
         by Liu et al.~\cite{liu2024survey}.
@@ -2450,6 +2998,19 @@ Z.\ Liu, P.\ An, Y.\ Yang, S.\ Qiu, Q.\ Liu, X.\ Xu,
 I.\ Yurchuk, T.\ Semenchenko,
 ``Vision-Based {UAV} Detection Models for Small-Edge Devices,''
 Taras Shevchenko National University of Kyiv, 2024.
+
+\bibitem{sidd2023}
+Dang Z.\ et al.,
+``SIDD: Shandong Infrared Drone Dataset,''
+\url{https://github.com/Dang-zy/SIDD}, 2023.
+
+\bibitem{antiuav410_2023}
+B.\ Huang, J.\ Li, J.\ Chen, G.\ Wang, J.\ Zhao, T.\ Xu,
+``Anti-UAV410: A Thermal Infrared Benchmark and Customized Scheme
+for Tracking Drones in the Wild,''
+\textit{IEEE Transactions on Pattern Analysis and Machine Intelligence},
+2023.
+\url{https://github.com/HwangBo94/Anti-UAV410}
 
 \end{thebibliography}
 

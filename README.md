@@ -55,9 +55,10 @@ python launcher_edge.py
 
 ---
 
-## Production Model
+## Production Models
 
-**BirdDrone-2C-FT** — YOLO26s fine-tuned on DUT Anti-UAV benchmark
+### BirdDrone-2C-FT (RGB — recommended)
+YOLO26s fine-tuned on DUT Anti-UAV benchmark. 2-class: Bird / Drone.
 
 | Metric | Value |
 |---|---|
@@ -66,7 +67,20 @@ python launcher_edge.py
 | Bird false alarm rate | 0.3% |
 | DUT detection rate | 0.818 |
 
-Weights: `UAV-dataset-workflow/training/finetuned/BirdDrone-2C/weights/best.pt` (tracked via Git LFS)
+Weights: `models/BirdDrone-2C-FT_best.pt`
+
+### ThermalDrone (Thermal IR — recommended for night/low-light)
+YOLO26s trained on SIDD thermal dataset. 1-class: Drone.
+
+| Metric | Value |
+|---|---|
+| mAP@0.5 (SIDD val) | 0.958 |
+| mAP@0.5:0.95 | 0.654 |
+| Anti-UAV410 Precision | 0.993 |
+| Anti-UAV410 Recall | 0.730 |
+| Anti-UAV410 F1 | 0.842 |
+
+Weights: `models/ThermalDrone_best.pt`
 
 ---
 
@@ -113,7 +127,7 @@ See `UAV-dataset-workflow/README.md` for the full ML pipeline documentation.
 
 ## Report
 
-`report_full.pdf` — 56-page academic report covering methodology, training, evaluation, and system architecture.
+`report_full.pdf` — 75-page academic report covering methodology, training, evaluation, system architecture, thermal infrared detection, and Anti-UAV410 benchmark results.
 
 ---
 
@@ -251,14 +265,10 @@ Any of these work:
 
 ### Model
 
-The production model weights are in the repo (Git LFS):
+The production model weights are in `models/`:
 ```
-UAV-dataset-workflow/training/finetuned/BirdDrone-2C/weights/best.pt
-```
-
-Or use a placeholder:
-```bash
-python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+models/BirdDrone-2C-FT_best.pt   # RGB Bird/Drone detector
+models/ThermalDrone_best.pt       # Thermal IR Drone detector
 ```
 
 ### Start Inference

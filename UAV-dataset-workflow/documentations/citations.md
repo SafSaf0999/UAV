@@ -272,3 +272,69 @@ for reproducibility. The DUT Anti-UAV dataset is available for research purposes
 via Google Drive (no formal license stated — academic use implied by publication).
 The WOSDETC challenge dataset requires a signed data usage agreement for
 non-commercial research use.
+
+---
+
+## Thermal Infrared Datasets
+
+### SIDD (Shandong Infrared Drone Dataset)
+- **Source:** GitHub
+- **URL:** https://github.com/Dang-zy/SIDD
+- **Modality:** Thermal infrared (LWIR), 640×512 px
+- **Scenes:** city, mountain, sea, sky
+- **Images:** ~4,737 total (3,788 train / 949 val)
+- **Format:** COCO JSON, single class: UAV
+- **Used for:** ThermalDrone training
+- **Citation:**
+  ```
+  @dataset{sidd2023,
+    title   = {SIDD: Shandong Infrared Drone Dataset},
+    author  = {Dang, Z. et al.},
+    year    = {2023},
+    url     = {https://github.com/Dang-zy/SIDD}
+  }
+  ```
+
+### Anti-UAV410 (Thermal Benchmark)
+- **Source:** GitHub
+- **URL:** https://github.com/HwangBo94/Anti-UAV410
+- **Modality:** Thermal infrared video sequences
+- **Scale:** 410 sequences, 438K+ annotated bounding boxes
+- **Splits:** train / val / test (128 test sequences used for evaluation)
+- **Format:** Per-sequence .txt files, one line per frame: x_tl, y_tl, w, h
+- **Used for:** ThermalDrone benchmark evaluation (NOT training)
+- **Results:** Precision=0.993, Recall=0.730, F1=0.842, DR=0.730 (129,691 frames)
+- **Citation:**
+  ```
+  @article{antiuav410_2023,
+    title   = {Anti-UAV410: A Thermal Infrared Benchmark and Customized Scheme
+               for Tracking Drones in the Wild},
+    author  = {Huang, Bo and Li, Jianan and Chen, Junjie and Wang, Gang and
+               Zhao, Jian and Xu, Tingfa},
+    journal = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+    year    = {2023},
+    url     = {https://github.com/HwangBo94/Anti-UAV410}
+  }
+  ```
+
+### CST-Anti-UAV (Thermal Benchmark)
+- **Source:** GitHub
+- **URL:** https://github.com/PCwenyue/CST-Anti-UAV
+- **Modality:** Thermal infrared video sequences
+- **Scale:** 220 sequences, 240K+ annotated bounding boxes
+- **Format:** Per-sequence .txt files, one line per frame: cx, cy, w, h (center-based, float)
+- **Used for:** Future benchmark evaluation (frames not yet evaluated)
+- **Citation:**
+  ```
+  @InProceedings{Xie_2025_ICCV,
+    author    = {Xie, Bin and Zhang, Congxuan and Wang, Fagan and Liu, Peng
+                 and Lu, Feng and Chen, Zhen and Hu, Weiming},
+    title     = {CST Anti-UAV: A Thermal Infrared Benchmark for Tiny UAV
+                 Tracking in Complex Scenes},
+    booktitle = {Proceedings of the IEEE/CVF International Conference on
+                 Computer Vision (ICCV) Workshops},
+    month     = {October},
+    year      = {2025},
+    pages     = {6157--6166}
+  }
+  ```

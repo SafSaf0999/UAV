@@ -249,17 +249,29 @@ batch: 16
 
 ---
 
-## Thermal Training Plan (Next)
+## Thermal Training Plan (COMPLETED)
 
-Datasets to use:
-1. Anti-UAV (ZhaoJ9014) — RGB+thermal pairs, drone detection in the wild
-2. Anti-UAV410 — thermal IR benchmark, 410 sequences
+Datasets used:
+1. SIDD (Shandong Infrared Drone Dataset) — 4 scenes (city, mountain, sea, sky), 4,737 images, COCO format
+2. Anti-UAV410 — thermal IR benchmark, 410 sequences (evaluation only, NOT training)
+3. CST-Anti-UAV — thermal IR benchmark, 220 sequences (evaluation pending)
 
 Key differences from RGB:
 - No HSV augmentation (thermal is grayscale)
-- Higher copy_paste (0.6)
+- Higher copy_paste (0.7) for tiny targets
+- erasing=0.3 to simulate CCTV text overlays
 - No mixup
-- Classes: Bird/Drone/UAV
+- Classes: Drone only (1-class)
+
+### ThermalDrone (COMPLETED)
+- Model: yolo26s, 1-class (Drone)
+- Dataset: SIDD thermal — 3,788 train / 949 val (4 scenes)
+- Hardware: RTX 2070 8GB (local)
+- Epochs: 100 | Batch: 8 | lr0: 0.005
+- **mAP@0.5: 0.958** | mAP@0.5:0.95: 0.654 | P: 0.983 | R: 0.908
+- Anti-UAV410 benchmark: Precision=0.993, Recall=0.730, F1=0.842 (129,691 frames)
+- Weights: `training/thermal_drone_yolo26s_rtx2070_100ep/weights/best.pt`
+- Production copy: `models/ThermalDrone_best.pt`
 
 ---
 
@@ -304,17 +316,21 @@ python -m anti_uav compare
 |---|---|---|---|---|
 | BirdDrone-2C | 0.926 | 0.554 | 0.3% | Base model |
 | BirdDrone-3C | 0.892 | 0.574 | 6.9% | Base model |
-| BirdDrone-2C-FT | 0.969* | 0.678* | 0.3% | **Recommended** |
+| BirdDrone-2C-FT | 0.969* | 0.678* | 0.3% | **Recommended RGB** |
 | BirdDrone-3C-FT | 0.881* | 0.598* | 4.5% | Fine-tuned |
+| ThermalDrone | 0.958 | 0.654 | N/A | **Recommended thermal** |
 
 *On combined val set (original + DUT annotations)
 
-**Recommended production model:** BirdDrone-2C-FT
+**Recommended production models:**
+- RGB: BirdDrone-2C-FT → `models/BirdDrone-2C-FT_best.pt`
+- Thermal: ThermalDrone → `models/ThermalDrone_best.pt`
 
 ---
 
 ## Validation Benchmarks
 
 - DUT Anti-UAV (IEEE-TITS 2022) — RGB daytime, 20 videos, evaluated ✅
+- Anti-UAV410 thermal benchmark — 128 test sequences, 129,691 frames, evaluated ✅ (F1=0.842)
 - WOSDETC Drone-vs-Bird Challenge — data usage agreement pending
-- Anti-UAV410 thermal benchmark — future work
+- CST-Anti-UAV thermal benchmark — frames not yet downloaded
