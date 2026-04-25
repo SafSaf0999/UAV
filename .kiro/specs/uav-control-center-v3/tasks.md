@@ -253,7 +253,7 @@ Incremental enhancements to the existing v2 system. Tasks are ordered to build o
   - [x] 28.4 Create `electron/preload.js` (minimal context bridge); create `electron/PKGBUILD` for Arch Linux installation; configure `electron-builder.yml` for AppImage output
     - _Requirements: 11.7, 11.8_
 
-- [-] 29. Final checkpoint — Ensure all tests pass
+- [x] 29. Final checkpoint — Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes

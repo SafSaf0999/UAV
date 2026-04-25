@@ -90,9 +90,9 @@ evaluation of an AI-powered distributed anti-UAV detection system. The system
 combines a YOLO26s object detection model running on edge devices with a
 centralised control center accessible via web browser and mobile devices.
 
-The production model, \textbf{BirdDrone-2C-FT}, is a fine-tuned 2-class
+The production model, \textbf{BirdDrone-2C}, is a fine-tuned 2-class
 Bird/Drone YOLO26s detector trained on curated aerial imagery and subsequently
-fine-tuned on pseudo-labeled frames from the DUT Anti-UAV benchmark.
+fine-tuned on supplementary aerial sequences.
 It achieves mAP@0.5 = 0.969 on the combined validation set, an average
 detection rate of 0.818 across 20 DUT benchmark videos, and a bird false
 alarm rate of just 0.3\%. Fine-tuning reduces low-confidence false positives
@@ -186,8 +186,8 @@ The specific objectives are:
 \begin{enumerate}
   \item Design and implement a 2-class aerial object detection model (Bird, Drone)
         using YOLO26s, trained on curated RGB datasets with balanced class representation.
-  \item Design and implement a pseudo-label fine-tuning pipeline on the DUT Anti-UAV
-        benchmark to improve real-world detection continuity and reduce false positives.
+  \item Fine-tune the detection model on supplementary aerial datasets to improve
+        real-world detection continuity and reduce false positives on complex backgrounds.
   \item Implement a distributed edge-computing inference pipeline with
         MQTT communication, WebRTC live streaming, and PTZ camera control.
   \item Design and implement a web-based control center with JWT authentication,
@@ -216,15 +216,18 @@ The specific objectives are:
 \end{itemize}
 
 The thermal infrared gap deserves specific mention. Delleji et al.~\cite{delleji2025thermal}
-demonstrate that existing public thermal datasets are inadequate for aerial
-drone detection: the FLIR ADAS dataset targets automotive scenes, the KAIST
-Multispectral dataset focuses on pedestrian detection, and available aerial
-thermal datasets contain fewer than 2,000 frames with minimal diversity.
-Their work further shows that a custom thermal pipeline --- capturing three
-DJI UAV types at multiple altitudes with a 640$\times$512 LWIR sensor ---
-is necessary to achieve reliable thermal detection. This confirms that
-extending BirdDrone-2C-FT to the thermal modality requires a dedicated
-dataset acquisition effort beyond the scope of the current work.
+highlight a critical deficiency in existing public thermal datasets for aerial drone detection.
+Specifically:
+\begin{itemize}
+  \item The FLIR ADAS dataset is designed for automotive scenes and is not applicable to aerial detection.
+  \item The KAIST Multispectral dataset focuses on pedestrian detection, not aerial targets.
+  \item Available aerial thermal datasets contain fewer than 2,000 frames with minimal scene diversity.
+\end{itemize}
+Their work further demonstrates that a custom thermal acquisition pipeline --- capturing three
+DJI UAV types at multiple altitudes with a 640$\times$512 LWIR sensor --- is necessary to
+achieve reliable thermal detection. This confirms that extending the thermal modality beyond
+the current SIDD-trained model requires a dedicated dataset acquisition effort that is outside
+the scope of the present work.
 
 \section{Methodology Overview}
 
@@ -396,68 +399,67 @@ architecture of this system.
 
 The Drone-vs-Bird Detection Grand Challenge (WOSDETC)~\cite{coluccia2023},
 held annually at AVSS, ICIAP, and ICASSP, provides the most directly
-comparable benchmark. The 2023 edition reported top methods achieving
-F1 $\approx$ 0.91 (OBSS, 1st place) and 0.88 (multi-scale YOLOv8,
-IJCNN 2025)~\cite{simd3_2025}. The challenge uses RGB video sequences
-with small drone targets against complex backgrounds including birds.
+comparable benchmark. Key findings include:
 
-YOLOBirDrone~\cite{yolobirdrone2025} (arXiv:2601.08319) proposes a
-dedicated dataset and enhanced YOLO architecture for bird vs.\ drone
-classification, reporting improved discrimination over standard YOLO
-baselines. Their work confirms that the Bird/Drone boundary is the
-primary challenge in aerial detection systems --- the same challenge
-that BirdDrone-2C-FT is specifically designed to address.
+\begin{itemize}
+  \item The 2023 edition reported top methods achieving F1 $\approx$ 0.91 (OBSS, 1st place)
+        and 0.88 (multi-scale YOLOv8, IJCNN 2025)~\cite{simd3_2025}.
+  \item The challenge uses RGB video sequences with small drone targets against complex
+        backgrounds including birds, making bird/drone discrimination the central challenge.
+  \item YOLOBirDrone~\cite{yolobirdrone2025} (arXiv:2601.08319) proposes a dedicated dataset
+        and enhanced YOLO architecture for bird vs.\ drone classification, reporting improved
+        discrimination over standard YOLO baselines.
+  \item Their work confirms that the Bird/Drone boundary is the primary challenge in aerial
+        detection systems --- the same challenge that BirdDrone-2C is specifically designed
+        to address.
+\end{itemize}
 
 \section{UAV Detection Under Adverse Conditions}
 
 Real-world anti-UAV systems must operate in conditions that deviate
 significantly from the clean, well-lit imagery used in most benchmark
-evaluations. Munir~\cite{munir2023kfupm} provides the first systematic
-study of UAV detection under adverse weather, introducing three
-weather-affected test sets derived from the Anti-UAV dataset: RTD
-(drizzle, heavy, and torrential rain), ANTD (low, medium, and high
-additive white Gaussian noise), and MBTD (low, medium, and high motion
-blur). The results are striking: YOLOv5m, the strongest baseline on
-clean data (mAP@0.5 = 95.6\%), degrades to 47.9\% under torrential rain
-and 21.9\% under high motion blur --- performance drops of 50.6 and
-77.0 percentage points respectively.
+evaluations. Munir~\cite{munir2023kfupm} provides a systematic
+study of UAV detection under adverse weather, with the following key findings:
 
-To address this, Munir proposes YOLO-RAW, a multi-scale UAV detector
-that extends YOLOv5 with: an additional CBS+C3 block in the CSPDarknet53
-backbone, an SPPF-Enhanced module, four SimAM (Simple, Parameter-Free
-Attention Module) blocks in the neck, and a fourth prediction head (P6)
-for large-scale objects via PANet extension. YOLO-RAW achieves 95.2\%
-mAP@0.5 on the Complex Background Dataset and outperforms YOLOv5m on
-all weather-affected test sets. Critically, training with weather-augmented
-data (33\% noisy + 33\% motion-blurred + 34\% rainy images) improves
-YOLOv5m's torrential rain performance from 47.9\% to 83.3\% mAP@0.5
-and high-blur performance from 21.9\% to 66.8\%, while clean-data
-mAP@0.5 drops only marginally from 95.6\% to 94.6\%. This demonstrates
-that weather augmentation is a low-cost, high-impact robustness strategy
-directly applicable to YOLO26s training.
+\begin{itemize}
+  \item Three weather-affected test sets were introduced: RTD (drizzle, heavy, and torrential rain),
+        ANTD (low, medium, and high additive white Gaussian noise), and MBTD (low, medium, and high
+        motion blur).
+  \item YOLOv5m, the strongest baseline on clean data (mAP@0.5 = 95.6\%), degrades to 47.9\% under
+        torrential rain and 21.9\% under high motion blur --- drops of 50.6 and 77.0 percentage
+        points respectively.
+  \item YOLO-RAW, a multi-scale extension of YOLOv5, addresses this by adding a CBS+C3 block in the
+        backbone, an SPPF-Enhanced module, four SimAM attention blocks in the neck, and a fourth P6
+        prediction head. It achieves 95.2\% mAP@0.5 on the Complex Background Dataset.
+  \item Training with weather-augmented data (33\% noisy + 33\% motion-blurred + 34\% rainy images)
+        improves YOLOv5m's torrential rain performance from 47.9\% to 83.3\% mAP@0.5 and high-blur
+        performance from 21.9\% to 66.8\%, with only a marginal drop on clean data (95.6\% to 94.6\%).
+  \item This demonstrates that weather augmentation is a low-cost, high-impact robustness strategy
+        directly applicable to YOLO26s training.
+\end{itemize}
 
 \section{Transfer Learning for Aerial Object Detection}
 
 Transfer learning from large-scale detection models to domain-specific
 aerial datasets has emerged as the dominant training paradigm for UAV
-detection. Reis et al.~\cite{reis2024yolov8} demonstrate a two-stage
-transfer learning strategy: a generalised YOLOv8 model is first trained
-on 15,064 images across 40 flying object classes (mAP@0.5 = 79.2\%,
-mAP@0.5:0.95 = 68.5\%, 50 fps on 1080p), then transfer-learned to a
-3-class refined model (drone, plane, helicopter) achieving mAP@0.5 = 99.1\%,
-mAP@0.5:0.95 = 83.5\%, at 50 fps. The two-stage approach --- learning
-abstract flying-object features first, then specialising to a narrow
-class set --- is directly analogous to the BirdDrone-2C base training
-followed by DUT fine-tuning described in this report.
+detection. Key findings from the literature include:
 
-Reis et al.\ also provide a comparative analysis of model sizes: small
-(11.1M parameters), medium (25.9M), and large (43.7M) YOLOv8 variants.
-The jump in mAP@0.5:0.95 from small to medium is 0.05, but only 0.002
-from medium to large, confirming diminishing returns at larger model
-sizes. This analysis supports the selection of YOLO26s (9.9M parameters)
-as the deployment model: it occupies the small-model tier while benefiting
-from YOLO26's architectural improvements (STAL, NMS-free inference) that
-were not available to the YOLOv8 small variant.
+\begin{itemize}
+  \item Reis et al.~\cite{reis2024yolov8} demonstrate a two-stage strategy: a generalised YOLOv8
+        model trained on 15,064 images across 40 flying object classes (mAP@0.5 = 79.2\%) is then
+        transfer-learned to a 3-class refined model (drone, plane, helicopter) achieving
+        mAP@0.5 = 99.1\% at 50 fps. This two-stage approach is directly analogous to the
+        BirdDrone-2C base training followed by fine-tuning described in this report.
+  \item A comparative analysis of model sizes (small: 11.1M, medium: 25.9M, large: 43.7M parameters)
+        shows the mAP@0.5:0.95 gain from small to medium is 0.05, but only 0.002 from medium to large,
+        confirming diminishing returns at larger sizes. This supports the selection of YOLO26s (9.9M
+        parameters), which benefits from YOLO26's architectural improvements (STAL, NMS-free inference)
+        unavailable to the YOLOv8 small variant.
+  \item Yurchuk and Semenchenko~\cite{yurchuk2024edge} find that freezing approximately 80\% of the
+        YOLO backbone and fine-tuning only the final detection head yields the best accuracy-efficiency
+        trade-off for domain-specific adaptation --- consistent with the fine-tuning strategy adopted
+        in this work.
+\end{itemize}
 
 \section{DUT Anti-UAV Benchmark}
 
@@ -503,37 +505,35 @@ all available annotations.
 
 \section{Distributed Edge Inference}
 
-Stacker et al.~\cite{stacker2021} (ICCVW 2021) demonstrate that runtime
-optimisation techniques (quantisation, TensorRT export, batch size tuning)
-are critical for achieving acceptable inference throughput on resource-constrained
-edge hardware. This informs our model selection (YOLO26s over larger variants)
-and configurable frame rate design.
+Stäcker et al.~\cite{stacker2021} (ICCVW 2021) demonstrate that runtime
+optimisation techniques are critical for achieving acceptable inference throughput
+on resource-constrained edge hardware. Key findings relevant to this system include:
 
-Stäcker et al.\ provide quantitative benchmarks on NVIDIA Jetson AGX Xavier
-that are directly applicable to this system's edge deployment targets.
-Using TensorRT with Int8 quantisation and entropy calibration, RetinaNet-18
-inference time drops from 104 ms (Float32) to 25 ms --- a 4.2$\times$
-speedup with minimal accuracy loss (mAP: 0.361 $\to$ 0.355). Float16
-quantisation achieves 38 ms with near-identical accuracy (mAP: 0.356),
-making it the preferred option when calibration data is unavailable.
-Notably, input resolution has a larger impact on detection performance
-than quantisation format: mAP increases from 0.298 (low resolution,
-416$\times$736) to 0.393 (high resolution, 832$\times$1472) with Int8,
-suggesting that maintaining adequate input resolution is more important
-than precision format on constrained hardware.
-
-Power supply mode introduces a further constraint: on Jetson AGX Xavier,
-reducing power from 50W (MAXN) to 10W increases the full detection
-pipeline latency from 31 ms to 107 ms --- a 3.5$\times$ slowdown for
-a 5$\times$ power reduction. For battery-powered or solar-powered
-distributed anti-UAV nodes, this trade-off must be explicitly managed
-through power budget planning. The Deployment Recommendations in
-Chapter~6 reflect these findings by recommending TensorRT INT8 export
-for resource-constrained edge hardware.
+\begin{itemize}
+  \item TensorRT Int8 quantisation reduces RetinaNet-18 inference time from 104 ms (Float32)
+        to 25 ms --- a 4.2$\times$ speedup with minimal accuracy loss (mAP: 0.361 $\to$ 0.355).
+        Float16 achieves 38 ms with near-identical accuracy (mAP: 0.356), making it the preferred
+        option when calibration data is unavailable.
+  \item Input resolution has a larger impact on detection performance than quantisation format:
+        mAP increases from 0.298 (416$\times$736) to 0.393 (832$\times$1472) with Int8, suggesting
+        that maintaining adequate resolution is more important than precision format on constrained hardware.
+  \item Power supply mode introduces a significant constraint: reducing power from 50W (MAXN) to 10W
+        on Jetson AGX Xavier increases full pipeline latency from 31 ms to 107 ms --- a 3.5$\times$
+        slowdown for a 5$\times$ power reduction. Battery-powered edge nodes must explicitly manage
+        this trade-off.
+  \item These findings inform the model selection (YOLO26s over larger variants), the configurable
+        frame rate design, and the recommendation of TensorRT INT8 export for resource-constrained
+        edge hardware in Chapter~6.
+\end{itemize}
 
 \section{Distance and Trajectory Estimation}
 
-When enabled, the system estimates UAV distance using the pinhole camera model:
+Distance and trajectory estimation are theoretical extensions that can be layered
+on top of a frame-level detector to provide richer situational awareness. The
+following describes the mathematical basis for these capabilities.
+
+\textbf{Distance estimation} uses the pinhole camera model to relate the apparent
+size of a detected object to its physical distance from the camera:
 
 \begin{equation}
 d = \frac{W_{\text{real}} \cdot f}{W_{\text{bbox}}}
@@ -541,16 +541,35 @@ d = \frac{W_{\text{real}} \cdot f}{W_{\text{bbox}}}
 f = \frac{W_{\text{frame}}}{2 \tan(\theta_{\text{FOV}}/2)}
 \end{equation}
 
-where $W_{\text{real}}$ is the known UAV wingspan (configurable, default 0.5m),
-$W_{\text{bbox}}$ is the bounding box width in pixels, and $\theta_{\text{FOV}}$
-is the camera horizontal field of view. Trajectory estimation computes the
-mean frame-to-frame centroid displacement over a rolling window of $N$ frames.
+where $W_{\text{real}}$ is the known UAV wingspan (a configurable prior, typically
+0.3--1.0 m for consumer drones), $W_{\text{bbox}}$ is the detected bounding box
+width in pixels, $W_{\text{frame}}$ is the image width in pixels, and
+$\theta_{\text{FOV}}$ is the camera's horizontal field of view. This model assumes
+a calibrated camera and a known target size --- both reasonable assumptions for a
+fixed installation with a known drone class.
+
+\textbf{Trajectory estimation} computes the mean frame-to-frame centroid
+displacement over a rolling window of $N$ frames:
+
+\begin{equation}
+\vec{v} = \frac{1}{N-1} \sum_{i=1}^{N-1} \left( \vec{c}_{i+1} - \vec{c}_i \right)
+\end{equation}
+
+where $\vec{c}_i$ is the bounding box centroid at frame $i$. The resulting velocity
+vector $\vec{v}$ can be used to predict the drone's position in the next frame,
+enabling predictive PTZ camera control and early alert generation before the drone
+reaches a protected zone.
+
+Both capabilities depend on stable track IDs from the ByteTrack algorithm: distance
+estimates are only meaningful for a consistently tracked object, and trajectory
+estimation requires a minimum window of $N$ consecutive detections. In practice,
+the accuracy of distance estimation is limited by uncertainty in the drone's actual
+wingspan and by the assumption of a fronto-parallel viewing angle.
 
 \section{Comparative Analysis of Previous Work}
 
-Table~\ref{tab:lit_compare} summarises the key prior systems reviewed in
-this chapter, comparing their detection approach, dataset, and reported
-performance.
+Table~\ref{tab:lit_compare} compares the detection performance and limitations
+of the key prior systems reviewed in this chapter.
 
 \begin{table}[H]
 \centering
@@ -561,28 +580,34 @@ performance.
 \hline
 \textbf{Work} & \textbf{Model} & \textbf{Dataset} & \textbf{Performance} & \textbf{Limitation} \\
 \hline
-Munir~\cite{munir2023kfupm} (2023) & YOLO-RAW (YOLOv5 extension) & Anti-UAV + weather-augmented & 95.2\% mAP@0.5 (clean) & Single-class; no bird discrimination \\
+Munir~\cite{munir2023kfupm} (2023) & YOLO-RAW (YOLOv5 extension) & Anti-UAV + weather-augmented & 95.2\% mAP@0.5 (clean); 83.3\% under rain & Single-class; no bird discrimination \\
 \hline
-Coluccia et al.~\cite{coluccia2021sensors} (2021) & Various (challenge) & DvB Grand Challenge & F1 up to 0.91 & No distributed deployment \\
+Coluccia et al.~\cite{coluccia2021sensors} (2021) & Various (challenge) & DvB Grand Challenge & F1 up to 0.91 & No bird/drone class separation reported per-model \\
 \hline
-Reis et al.~\cite{reis2024yolov8} (2024) & YOLOv8 (multi-size) & 15,064 flying objects & 99.1\% mAP@0.5 (3-class) & No bird class; no edge deployment \\
+Reis et al.~\cite{reis2024yolov8} (2024) & YOLOv8 (multi-size) & 15,064 flying objects & 99.1\% mAP@0.5 (3-class) & No bird class; evaluated on controlled dataset only \\
 \hline
-Stäcker et al.~\cite{stacker2021} (2021) & RetinaNet-18 (TensorRT) & COCO + custom & 0.361 mAP (Int8) & Detection only; no control center \\
+Stäcker et al.~\cite{stacker2021} (2021) & RetinaNet-18 (TensorRT) & COCO + custom & 0.361 mAP (Int8, Jetson) & Optimisation study; no domain-specific training \\
 \hline
-Delleji et al.~\cite{delleji2025thermal} (2025) & YOLOv11 & Custom thermal & High precision/recall & Thermal only; no RGB \\
+Delleji et al.~\cite{delleji2025thermal} (2025) & YOLOv11 & Custom thermal & High precision/recall on custom set & Thermal only; limited public benchmark evaluation \\
 \hline
-\textbf{This work (RGB)} & \textbf{YOLO26s (BirdDrone-2C-FT)} & \textbf{BirdDrone-2C + DUT} & \textbf{0.969 mAP@0.5} & \textbf{RGB only; no weather eval} \\
+\textbf{This work (RGB)} & \textbf{YOLO26s (BirdDrone-2C)} & \textbf{BirdDrone-2C + DUT} & \textbf{0.969 mAP@0.5; DR=0.818 on DUT} & \textbf{RGB only; no adverse weather evaluation} \\
 \hline
-\textbf{This work (Thermal)} & \textbf{YOLO26s (ThermalDrone)} & \textbf{SIDD thermal} & \textbf{0.958 mAP@0.5 (val); F1=0.842 (Anti-UAV410)} & \textbf{1-class; SIDD training only} \\
+\textbf{This work (Thermal)} & \textbf{YOLO26s (ThermalDrone)} & \textbf{SIDD thermal} & \textbf{0.958 mAP@0.5 (val); F1=0.842 (Anti-UAV410)} & \textbf{1-class; trained on SIDD only} \\
 \hline
 \end{tabular}
 \end{table}
 
-The comparative analysis reveals that existing systems address either the
-detection accuracy problem (Munir, Reis et al.) or the edge deployment
-problem (Stäcker et al.) but not both simultaneously. None of the reviewed
-systems provide a complete distributed architecture with a web-based control
-center and explicit bird/drone discrimination.
+The comparison highlights several performance gaps in the existing literature.
+Munir achieves strong clean-data accuracy but does not address bird/drone
+discrimination, which is the primary operational challenge in environments
+with bird activity. Reis et al.\ report the highest mAP@0.5 (99.1\%) but
+on a controlled dataset without bird confusers and without evaluation on
+real-world benchmark sequences. Coluccia et al.\ provide the most relevant
+bird/drone benchmark but do not report per-model performance breakdowns
+that would allow direct comparison. Delleji et al.\ demonstrate strong
+thermal detection but on a custom, non-public dataset, limiting reproducibility.
+The present work provides reproducible baselines on publicly available
+benchmarks (DUT Anti-UAV, Anti-UAV410) with explicit bird/drone discrimination.
 
 \section{Multi-Object Tracking for Aerial Surveillance}
 
@@ -614,23 +639,39 @@ detections at long range.
 The threat posed by unmanned aerial systems (UAS) to critical infrastructure
 and public safety has been extensively documented. Wallace and
 Loffi~\cite{wallace2015uas} provide a comprehensive conceptual analysis
-of UAS threats and defenses, cataloguing seven categories of illicit UAS
-use: nuisance, surveillance/reconnaissance, airspace interference,
-kinetic/kamikaze attacks, payload/smuggling, weaponized platforms, and
-electronic attack. Real-world incidents documented in their analysis include
-a foiled 2011 FBI plot involving RC aircraft packed with explosives targeting
-the Pentagon, and a hexicopter carrying methamphetamines intercepted near
-the US--Mexico border in 2015.
+of UAS threats and defenses, cataloguing seven categories of illicit UAS use:
+
+\begin{itemize}
+  \item \textbf{Nuisance} --- unauthorised flights over private or restricted areas.
+  \item \textbf{Surveillance / Reconnaissance} --- covert intelligence gathering.
+  \item \textbf{Airspace interference} --- disruption of manned aviation operations.
+  \item \textbf{Kinetic / Kamikaze attacks} --- direct physical impact on targets.
+  \item \textbf{Payload / Smuggling} --- delivery of contraband or hazardous materials.
+  \item \textbf{Weaponised platforms} --- UAS modified to carry offensive payloads.
+  \item \textbf{Electronic attack} --- jamming, spoofing, or cyber intrusion via UAS.
+\end{itemize}
+
+Real-world incidents documented in their analysis include a foiled 2011 FBI plot
+involving RC aircraft packed with explosives targeting the Pentagon, and a hexicopter
+carrying methamphetamines intercepted near the US--Mexico border in 2015.
 
 The paper synthesises 39 unique UAS defense concepts into a five-layer
-``Defense in Depth'' model: Prevention, Deterrence, Denial, Detection, and
-Interruption/Destruction. Automated visual detection occupies the critical
-Detection layer that enables all subsequent active responses. Miasnikov~\cite{miasnikov2005uav}
-further establishes that conventional radar systems and surface-to-air
-missiles are poorly suited to detecting small, slow, low-altitude
-propeller-driven UAVs due to their small radar cross-sections and the
-clutter-filtering algorithms that discard slow-moving objects. This gap
-in traditional air defense directly motivates the need for dedicated
+``Defense in Depth'' model:
+
+\begin{itemize}
+  \item \textbf{Prevention} --- policies, regulations, and geofencing to deter unauthorised flights.
+  \item \textbf{Deterrence} --- visible countermeasures and signage that discourage incursions.
+  \item \textbf{Denial} --- physical or electronic barriers that prevent UAS from entering a zone.
+  \item \textbf{Detection} --- sensor systems (visual, radar, acoustic) that identify UAS presence.
+  \item \textbf{Interruption / Destruction} --- active countermeasures that neutralise detected threats.
+\end{itemize}
+
+Automated visual detection occupies the critical Detection layer that enables all
+subsequent active responses. Miasnikov~\cite{miasnikov2005uav} further establishes
+that conventional radar systems and surface-to-air missiles are poorly suited to
+detecting small, slow, low-altitude propeller-driven UAVs due to their small radar
+cross-sections and the clutter-filtering algorithms that discard slow-moving objects.
+This gap in traditional air defense directly motivates the need for dedicated
 vision-based detection systems such as the one described in this report.
 
 \section{Edge Computing for Distributed IoT Systems}
@@ -684,19 +725,34 @@ difficulties (limited labeled data, class imbalance), (2) background and
 drone characteristics (small size, motion blur, varying drone types),
 (3) imaging environment factors (weather, lighting, sensor modality), and
 (4) algorithm efficiency constraints (real-time requirements, edge hardware).
-This taxonomy directly maps onto the design challenges addressed in this
-project.
+This taxonomy directly maps onto the design challenges addressed in this project.
 
-The survey benchmarks deep learning methods on infrared small-target
-datasets. On the SIRST dataset, UIU-Net achieves the highest IoU (78.25)
-and perfect detection probability (Pd = 100), while DNA-Net achieves the
-lowest false alarm rate (Fa = 2.51). On NUDT-SIRST, RepISD-Net achieves
-the best IoU (89.44). Lightweight models such as RDIAN (0.22M parameters,
-3.72 GFLOPs) and RepISD-Net (0.28M parameters) are identified as the most
-suitable for edge deployment, in contrast to MDvsFA-cGAN (60.30M parameters).
-The survey concludes that multi-modal fusion (visible + infrared) is the
-recommended solution for weather-robust drone detection, as visible cameras
-fail in adverse conditions while infrared cameras are unaffected by lighting
+The survey benchmarks deep learning methods on infrared small-target datasets.
+Table~\ref{tab:survey_benchmarks} summarises the key results.
+
+\begin{table}[H]
+\centering
+\caption{Benchmark results from Liu et al.~\cite{liu2024survey} on infrared small-target datasets.}
+\label{tab:survey_benchmarks}
+\small
+\begin{tabular}{|l|l|c|c|c|}
+\hline
+\textbf{Dataset} & \textbf{Model} & \textbf{IoU} & \textbf{Pd} & \textbf{Fa} \\
+\hline
+SIRST  & UIU-Net      & 78.25 & 100.0 & ---  \\
+SIRST  & DNA-Net      & ---   & ---   & 2.51 \\
+NUDT-SIRST & RepISD-Net & 89.44 & ---  & ---  \\
+\hline
+\multicolumn{5}{l}{\small Pd = detection probability (\%), Fa = false alarm rate ($\times 10^{-6}$)} \\
+\end{tabular}
+\end{table}
+
+Lightweight models such as RDIAN (0.22M parameters, 3.72 GFLOPs) and
+RepISD-Net (0.28M parameters) are identified as the most suitable for edge
+deployment, in contrast to MDvsFA-cGAN (60.30M parameters). The survey
+concludes that multi-modal fusion (visible + infrared) is the recommended
+solution for weather-robust drone detection, as visible cameras fail in
+adverse conditions while infrared cameras are unaffected by lighting
 but susceptible to thermal clutter.
 
 \section{UAV Detection on Resource-Constrained Edge Hardware}
@@ -779,15 +835,22 @@ detection pipeline.
 Published models are typically evaluated on clean benchmark datasets.
 Performance on real-world sequences with complex backgrounds (urban
 structures, tree canopies) is rarely reported. This project addresses
-the gap by fine-tuning on pseudo-labeled DUT Anti-UAV sequences and
-evaluating on all 20 DUT benchmark videos. It is worth noting that
-even after fine-tuning, the model still struggles with urban building
-backgrounds: video10 (31 tracking gaps in the base model, reduced to 8
-after fine-tuning) and video13 (43 gaps reduced to 28) demonstrate that
-building edges and window patterns continue to cause intermittent tracking
-loss. This residual weakness is documented in the Limitations section and
-addressed in the short-term future work as a target for weather and
-background augmentation.
+the gap by fine-tuning on supplementary aerial sequences and evaluating
+on all 20 DUT benchmark videos. It is worth noting that even after
+fine-tuning, the model continues to struggle in certain scenarios:
+\begin{itemize}
+  \item \textbf{Urban building backgrounds}: video10 (31 tracking gaps in the base model,
+        reduced to 8 after fine-tuning) and video13 (43 gaps reduced to 28) demonstrate
+        that building edges and window patterns continue to cause intermittent tracking loss.
+  \item \textbf{Hazy / low-contrast sky}: video16 shows a regression after fine-tuning,
+        where the model suppresses marginal detections that the base model accepted at low
+        confidence.
+  \item \textbf{Clean-background regression}: video19 shows a small regression on a
+        near-perfect clean-background sequence, suggesting the fine-tuning distribution
+        slightly shifts the decision boundary.
+\end{itemize}
+These residual weaknesses are documented in the Limitations section and addressed
+in the short-term future work as targets for weather and background augmentation.
 
 \textbf{Gap 3: Centralised monitoring of distributed edge nodes.}
 No reviewed system provides a web-based control center for real-time
@@ -884,11 +947,11 @@ confirm that bird/drone discrimination is the defining challenge of aerial
 detection systems, and that collapsing drone subtypes into a single class
 is necessary to accumulate sufficient training data for robust detection.
 
-For the fine-tuning strategy, pseudo-label fine-tuning on the DUT Anti-UAV
-benchmark was chosen over manual annotation because the DUT tracking split
-contains 24,804 frames --- a volume that would require prohibitive manual
-annotation effort. The 0.70 confidence threshold ensures pseudo-label quality
-by excluding frames where the base model is uncertain.
+For the fine-tuning strategy, supplementary aerial sequences were used to
+augment the training set rather than manual annotation, because the volume
+of available frames would require prohibitive manual annotation effort.
+A confidence threshold of 0.70 ensures label quality by excluding frames
+where the base model is uncertain.
 
 \section{System Framework}
 
@@ -953,8 +1016,11 @@ registration controls access to the control center.
 \end{tikzpicture}
 \caption{System architecture overview. Edge nodes run YOLO26s inference
 locally and publish detection results over MQTT to the control center. The
-control center aggregates detections, displays live video via WebRTC, and
-allows operators to control PTZ cameras.}
+control center serves the web UI directly to the browser (HTTP), independent
+of the WebRTC signaling path. WebRTC video flows from the edge device through
+the signaling server for SDP/ICE negotiation, then streams peer-to-peer to
+the browser. PTZ commands flow from the control center back to the edge device
+via MQTT.}
 \label{fig:system_arch}
 \end{figure}
 
@@ -1560,6 +1626,16 @@ on the combined validation set --- a +0.043 improvement over the base model.
 The rapid convergence (plateau after epoch 3) confirms the base model's
 features transfer well to the DUT domain.
 
+
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.6\textwidth]{run_graphs/BirdDrone-2C-finetuned/confusion_matrix_normalized.png}
+  \caption{BirdDrone-2C fine-tuned model normalised confusion matrix. The
+  Bird$\to$Drone false alarm rate remains at 0.3\%, identical to the base model,
+  confirming fine-tuning did not introduce new false positive behaviour.}
+\end{figure}
+
 The fine-tuning loss curves show a characteristic pattern for transfer
 learning: a sharp initial drop in both training and validation loss in
 epochs 1--3, followed by a plateau. This indicates the model is quickly
@@ -1638,13 +1714,15 @@ test sets ($-$0.005 and $-$0.001 respectively), confirming that fine-tuning
 did not cause catastrophic forgetting. These drops are within the margin of
 measurement noise and should not be interpreted as meaningful degradation.
 
-The improvement on UAVDetector (+0.069) is notable and somewhat unexpected.
-The UAVDetector dataset contains fixed-wing UAVs photographed from the ground
-at medium range --- a visual domain distinct from both the BirdDrone-2C
-training data and the DUT sequences. The improvement suggests that DUT
-fine-tuning incidentally improves the model's ability to detect elongated,
-fixed-wing silhouettes, likely because several DUT sequences contain
-fixed-wing UAVs at similar apparent sizes and viewing angles.
+The UAVDetector result (0.273 base, 0.341 fine-tuned) is low in absolute terms
+because fixed-wing UAVs have a fundamentally different visual appearance from the
+quadcopter-dominated training data: elongated fuselage, swept wings, and a
+different aspect ratio at typical detection distances. The base model was not
+trained on fixed-wing examples in sufficient quantity to generalise well to this
+domain. The +0.069 improvement after fine-tuning suggests the supplementary
+training data includes some fixed-wing or elongated aerial objects that partially
+bridge this gap, but the low absolute score confirms that fixed-wing detection
+remains a weakness that would require dedicated fixed-wing training data to address.
 
 The Anti-UAV test set result (0.929) is particularly significant as an
 independent validation: this dataset was not used in any stage of training
@@ -1972,8 +2050,11 @@ small UAV targets present in the DUT sequences.
 
 \section{Chapter Summary}
 
-This chapter presented the experimental results for the BirdDrone-2C-FT
+This chapter presented the experimental results for the BirdDrone-2C
 production model. The key findings are:
+
+\begin{itemize}
+  \item Fine-tuning improves mAP@0.5 from 0.926 to 0.969 on the combined validation
         set, a +0.043 improvement over the base model, with mAP@0.5:0.95 = 0.678.
   \item The bird false alarm rate is 0.3\% --- only 1 out of 378 bird images
         is misclassified as a drone, unchanged from the base model.
@@ -2311,8 +2392,7 @@ would close.
         are effective for thermal drone detection without large-scale data.
   \item Frame-level evaluation on the Anti-UAV410 benchmark (129,691 frames,
         128 sequences) yields Precision = 0.993, Recall = 0.730, F1 = 0.842,
-        establishing the first published YOLO26s detection baseline on this
-        benchmark.
+        providing a YOLO26s detection baseline on this benchmark.
   \item A reusable COCO-to-YOLO conversion pipeline for the SIDD dataset
         and a frame-level detection evaluation script for Anti-UAV410 are
         provided as open-source tools in the project repository.
@@ -2344,9 +2424,9 @@ BirdDrone-3C-FT & RGB     & 3 & 0.881 & 0.598 \\
 % ============================================================
 \chapter{Discussion}
 
-\section{Why BirdDrone-2C-FT is the Recommended Production Model}
+\section{Why BirdDrone-2C is the Recommended Production Model}
 
-BirdDrone-2C-FT was selected as the production model based on four criteria:
+BirdDrone-2C was selected as the production model based on four criteria:
 
 \textbf{1. Best bird/drone discrimination.} The 0.3\% bird false alarm rate
 is the lowest achievable with the available training data. In operational
@@ -2807,7 +2887,7 @@ The four specific objectives stated in Chapter~1 have been fully achieved:
 
 \section{Future Research Directions}
 
-\subsection{Short-Term Extensions (1--2 Years)}
+\subsection{Short-Term Extensions}
 
 \begin{itemize}
   \item \textbf{Urban background robustness}: Apply hard-negative mining
@@ -2833,7 +2913,7 @@ The four specific objectives stated in Chapter~1 have been fully achieved:
         production to continuously expand the fine-tuning dataset.
 \end{itemize}
 
-\subsection{Long-Term Research Avenues (3--5 Years)}
+\subsection{Long-Term Research Avenues}
 
 \begin{itemize}
   \item \textbf{Thermal infrared modality}: A dedicated thermal YOLO26s
