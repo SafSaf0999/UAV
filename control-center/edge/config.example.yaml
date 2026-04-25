@@ -1,0 +1,61 @@
+device_id: edge-01
+
+mqtt:
+  host: main-device.example.com
+  port: 8883
+  username: edge-01
+  password: change-me
+  tls:
+    ca_cert: /certs/ca.crt
+    # client_cert and client_key are optional (legacy cert-based auth)
+    # client_cert: /certs/edge-01.crt
+    # client_key: /certs/edge-01.key
+
+camera:
+  source: /dev/video0   # or rtsp://... or http://<phone_ip>:8080/video
+  fps: 15
+
+location:
+  lat: 24.7136
+  lon: 46.6753
+
+model_profiles:
+  - name: daylight-v1
+    file_path: /models/yolo26_daylight.pt
+    camera_mode: daylight
+  - name: night-v1
+    file_path: /models/yolo26_night.pt
+    camera_mode: night
+  - name: thermal-v1
+    file_path: /models/yolo26_thermal.pt
+    camera_mode: thermal
+
+active_model: daylight-v1
+
+ptz:
+  enabled: false
+  hardware_type: visca_serial   # visca_serial | visca_ip | onvif | arduino | digital
+  serial_port: /dev/ttyUSB0
+  baud_rate: 9600
+
+distance_estimation:
+  enabled: false
+  reference_uav_size_m: 0.5
+  fov_deg: 60.0
+
+trajectory_estimation:
+  enabled: false
+  window_frames: 10
+
+arduino:
+  enabled: false
+  serial_port: /dev/ttyACM0
+  baud_rate: 115200
+
+sensor_reader:
+  enabled: false
+  source: http://192.168.1.100:8080/sensors.json
+
+# Optional: IP Webcam Android app integration
+# ipwebcam:
+#   url: http://192.168.1.100:8080

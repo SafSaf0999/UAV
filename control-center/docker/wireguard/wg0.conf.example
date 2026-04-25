@@ -1,0 +1,48 @@
+# WireGuard server configuration template
+# Copy to /etc/wireguard/wg0.conf and fill in your keys.
+#
+# Generate key pairs:
+#   wg genkey | tee server_private.key | wg pubkey > server_public.key
+#   wg genkey | tee operator_private.key | wg pubkey > operator_public.key
+#
+# Requirements: 15.1, 15.4
+
+[Interface]
+# Server private key (keep secret)
+PrivateKey = <SERVER_PRIVATE_KEY>
+
+# VPN subnet address for this server
+Address = 10.8.0.1/24
+
+# WireGuard listen port
+ListenPort = 51820
+
+# Enable IP forwarding and NAT so VPN clients can reach the control center
+PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+
+# DNS for VPN clients (optional)
+# DNS = 1.1.1.1
+
+# ---------------------------------------------------------------------------
+# Operator peer (repeat this block for each operator)
+# ---------------------------------------------------------------------------
+[Peer]
+# Operator public key
+PublicKey = <OPERATOR_PUBLIC_KEY>
+
+# IP address assigned to this operator inside the VPN
+AllowedIPs = 10.8.0.2/32
+
+# Optional: pre-shared key for extra security
+# PresharedKey = <PRESHARED_KEY>
+
+# ---------------------------------------------------------------------------
+# Edge device peer (repeat for each edge device)
+# ---------------------------------------------------------------------------
+[Peer]
+# Edge device public key
+PublicKey = <EDGE_DEVICE_PUBLIC_KEY>
+
+# IP address assigned to this edge device inside the VPN
+AllowedIPs = 10.8.0.10/32

@@ -1,0 +1,34 @@
+device_id: edge-01
+mqtt:
+  host: 10.196.175.6
+  port: 8883
+  tls:
+    ca_cert: ./secrets/ca.crt
+    client_cert: ./secrets/edge-01.crt
+    client_key: ./secrets/edge-01.key
+camera:
+  source: http://10.196.175.184:8080/video
+  fps: 15
+location:
+  lat: 15.628
+  lon: 32.489
+active_model: daylight-v1
+model_profiles:
+- name: daylight-v1
+  file_path: /home/mubarak/Project/UAV-2/UAV/yolov8n.pt
+  camera_mode: daylight
+signaling:
+  url: ws://10.196.175.6:8090
+ptz:
+  enabled: false
+  hardware_type: digital
+sensor:
+  enabled: false
+  source: http
+  http_url: http://10.196.175.184:8080/sensors.json
+  poll_interval_s: 1.0
+estimator:
+  enabled: false
+  fov_deg: 60.0
+  reference_size_m: 0.5
+  window_frames: 10

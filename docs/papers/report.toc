@@ -1,0 +1,52 @@
+\contentsline {chapter}{\numberline {1}Introduction}{3}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Background of the Study}{3}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Problem Statement}{4}{section.1.2}%
+\contentsline {section}{\numberline {1.3}Significance of the Project}{4}{section.1.3}%
+\contentsline {section}{\numberline {1.4}Project Objectives}{5}{section.1.4}%
+\contentsline {section}{\numberline {1.5}Scope and Limitations}{5}{section.1.5}%
+\contentsline {section}{\numberline {1.6}Methodology Overview}{6}{section.1.6}%
+\contentsline {section}{\numberline {1.7}Organization of the Report}{6}{section.1.7}%
+\contentsline {chapter}{\numberline {2}Theoretical Background and Literature Review}{7}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Part I: Theoretical Background}{7}{section.2.1}%
+\contentsline {subsection}{\numberline {2.1.1}Fundamentals of Object Detection}{7}{subsection.2.1.1}%
+\contentsline {subsection}{\numberline {2.1.2}Detection Architectures: One-Step vs. Two-Step}{8}{subsection.2.1.2}%
+\contentsline {subsubsection}{Region Proposal-Based (Two-Step) Detectors}{8}{subsection.2.1.2}%
+\contentsline {subsubsection}{Regression-Based (One-Step) Detectors}{8}{subsection.2.1.2}%
+\contentsline {subsection}{\numberline {2.1.3}The YOLO Family: Evolution and Key Innovations}{8}{subsection.2.1.3}%
+\contentsline {subsection}{\numberline {2.1.4}YOLOv12: Architecture}{9}{subsection.2.1.4}%
+\contentsline {subsection}{\numberline {2.1.5}YOLO26: Architecture and Innovations}{9}{subsection.2.1.5}%
+\contentsline {subsection}{\numberline {2.1.6}ByteTrack: Multi-Object Tracking}{9}{subsection.2.1.6}%
+\contentsline {subsection}{\numberline {2.1.7}Theoretical Framework: Distance and Trajectory Estimation}{10}{subsection.2.1.7}%
+\contentsline {subsubsection}{Distance Estimation via Pinhole Camera Model}{10}{subsection.2.1.7}%
+\contentsline {subsubsection}{Trajectory Estimation via Sliding Window}{10}{equation.2.1}%
+\contentsline {subsection}{\numberline {2.1.8}Thermal Imaging for UAV Detection}{10}{subsection.2.1.8}%
+\contentsline {subsection}{\numberline {2.1.9}Edge Computing for Real-Time Inference}{11}{subsection.2.1.9}%
+\contentsline {subsection}{\numberline {2.1.10}MQTT Protocol for IoT Communication}{11}{subsection.2.1.10}%
+\contentsline {subsection}{\numberline {2.1.11}WebRTC for Live Video Streaming}{11}{subsection.2.1.11}%
+\contentsline {section}{\numberline {2.2}Part II: Literature Review}{11}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Deep Learning for Object Detection}{11}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}YOLO Family for Aerial Detection}{12}{subsection.2.2.2}%
+\contentsline {subsection}{\numberline {2.2.3}Drone vs. Bird Classification}{12}{subsection.2.2.3}%
+\contentsline {subsection}{\numberline {2.2.4}Comparative Analysis of Detection Architectures}{12}{subsection.2.2.4}%
+\contentsline {subsection}{\numberline {2.2.5}Research Gap and Project Contribution}{12}{subsection.2.2.5}%
+\contentsline {chapter}{\numberline {3}Methodology}{14}{chapter.3}%
+\contentsline {section}{\numberline {3.1}System Architecture Overview}{14}{section.3.1}%
+\contentsline {section}{\numberline {3.2}Hardware and Network Setup}{15}{section.3.2}%
+\contentsline {section}{\numberline {3.3}Model Training Experiments}{15}{section.3.3}%
+\contentsline {subsection}{\numberline {3.3.1}Experiment 1: YOLOv12 Medium — Single-Class Drone Detection}{15}{subsection.3.3.1}%
+\contentsline {subsubsection}{Configuration}{15}{subsection.3.3.1}%
+\contentsline {subsubsection}{Results}{16}{table.caption.5}%
+\contentsline {subsection}{\numberline {3.3.2}Experiment 2: YOLO26 Small — Drone vs. Bird Classification}{17}{subsection.3.3.2}%
+\contentsline {subsubsection}{Configuration}{17}{subsection.3.3.2}%
+\contentsline {subsubsection}{Dataset}{18}{table.caption.9}%
+\contentsline {subsubsection}{Results}{18}{figure.caption.10}%
+\contentsline {subsubsection}{Discussion}{21}{figure.caption.15}%
+\contentsline {subsection}{\numberline {3.3.3}Comparative Summary}{22}{subsection.3.3.3}%
+\contentsline {section}{\numberline {3.4}Edge Device Implementation}{22}{section.3.4}%
+\contentsline {subsection}{\numberline {3.4.1}Camera Acquisition}{22}{subsection.3.4.1}%
+\contentsline {subsection}{\numberline {3.4.2}Inference Pipeline}{22}{subsection.3.4.2}%
+\contentsline {subsection}{\numberline {3.4.3}MQTT Communication and Security}{22}{subsection.3.4.3}%
+\contentsline {section}{\numberline {3.5}Main Device Stack}{23}{section.3.5}%
+\contentsline {section}{\numberline {3.6}Frontend Command Center}{23}{section.3.6}%
+\contentsline {section}{\numberline {3.7}Launcher GUIs}{25}{section.3.7}%
+\contentsline {section}{\numberline {3.8}Testing}{25}{section.3.8}%

@@ -1,0 +1,23 @@
+/* UAV-specific semantic aliases on top of design tokens */
+
+:root {
+  /* Layout */
+  --sidebar-width-expanded: 240px;
+  --sidebar-width-collapsed: 64px;
+  --topbar-height: var(--ha-space-14); /* 56px */
+  --map-panel-width: 360px;
+
+  /* UAV status colors */
+  --uav-color-online: var(--ha-color-green-50);
+  --uav-color-offline: var(--ha-color-neutral-50);
+  --uav-color-alert: var(--ha-color-red-50);
+  --uav-color-warning: var(--ha-color-orange-60);
+  --uav-color-stream-active: var(--ha-color-primary-50);
+
+  /* Detection class defaults */
+  --uav-class-drone: var(--ha-color-red-50);
+  --uav-class-bird: #22c55e;
+  --uav-class-person: var(--ha-color-primary-50);
+  --uav-class-vehicle: #8b5cf6;
+  --uav-class-default: var(--ha-color-neutral-60);
+}
