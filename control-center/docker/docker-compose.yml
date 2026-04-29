@@ -44,8 +44,8 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         VITE_TILE_SERVER_URL: ${TILE_SERVER_URL:-https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png}
-        VITE_AGGREGATION_WS_URL: ${VITE_AGGREGATION_WS_URL:-ws://localhost:8080/ws}
-        VITE_SIGNALING_URL: ${VITE_SIGNALING_URL:-ws://localhost:8090}
+        VITE_AGGREGATION_WS_URL: ${VITE_AGGREGATION_WS_URL:-}
+        VITE_SIGNALING_URL: ${VITE_SIGNALING_URL:-}
     volumes:
       - frontend-dist:/vol
 

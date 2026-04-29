@@ -16,10 +16,10 @@ export default defineConfig({
       process.env.VITE_TILE_SERVER_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
     ),
     __AGGREGATION_WS_URL__: JSON.stringify(
-      process.env.VITE_AGGREGATION_WS_URL || "ws://localhost:8080/ws"
+      process.env.VITE_AGGREGATION_WS_URL || ""
     ),
     __SIGNALING_URL__: JSON.stringify(
-      process.env.VITE_SIGNALING_URL || "ws://localhost:8765"
+      process.env.VITE_SIGNALING_URL || ""
     ),
     __TURN_SERVER_URL__: JSON.stringify(
       process.env.VITE_TURN_SERVER_URL || ""

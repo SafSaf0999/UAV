@@ -12,7 +12,12 @@ import { getToken, clearToken } from "../utils/auth";
 declare const __AGGREGATION_WS_URL__: string;
 
 function _wsUrl(): string {
-  const base = __AGGREGATION_WS_URL__;
+  // If built with an explicit URL, use it. Otherwise derive from window.location
+  // so the frontend works on any host (local, remote, different port).
+  const configured = __AGGREGATION_WS_URL__;
+  const base = configured
+    ? configured
+    : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`;
   const token = getToken();
   return token ? `${base}?token=${encodeURIComponent(token)}` : base;
 }

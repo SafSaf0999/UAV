@@ -19,7 +19,7 @@
 
 const { WebSocketServer } = require("ws");
 
-const PORT = parseInt(process.env.SIGNALING_PORT || "8765", 10);
+const PORT = parseInt(process.env.SIGNALING_PORT || "8090", 10);
 
 // rooms[device_id] = { publisher: ws | null, subscribers: Set<ws> }
 const rooms = new Map();

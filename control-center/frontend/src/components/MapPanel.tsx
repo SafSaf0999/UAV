@@ -19,6 +19,13 @@ import { sendCommand, sendPtzCommand } from "../api/commands";
 
 declare const __SIGNALING_URL__: string;
 
+// Derive signaling URL from window.location if not explicitly configured at build time
+function getSignalingUrl(): string {
+  if (__SIGNALING_URL__) return __SIGNALING_URL__;
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.hostname}:8090`;
+}
+
 interface Props {
   device: DeviceState;
   onClose: () => void;
@@ -31,7 +38,7 @@ function PanelFeed({ device_id }: { device_id: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    const ws = new WebSocket(__SIGNALING_URL__);
+    const ws = new WebSocket(getSignalingUrl());
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
 
     pc.ontrack = (e) => {

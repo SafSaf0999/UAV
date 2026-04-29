@@ -17,7 +17,11 @@ import { TrackingOverlay } from "./TrackingOverlay";
 import { PtzControls } from "./PtzControls";
 
 declare const __SIGNALING_URL__: string;
-const SIGNALING_URL = __SIGNALING_URL__;
+// Derive signaling URL from window.location if not explicitly configured at build time
+const SIGNALING_URL = __SIGNALING_URL__ || (() => {
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.hostname}:8090`;
+})();
 
 // Optional TURN server — injected at build time or falls back to STUN only
 declare const __TURN_SERVER_URL__: string | undefined;

@@ -5,9 +5,10 @@ const { spawn } = require('child_process')
 const path = require('path')
 
 const composePath = path.join(__dirname, '..', 'docker', 'docker-compose.yml')
+const envFilePath  = path.join(__dirname, '..', 'docker', '.env')
 const POLL_URL = 'http://localhost:8080'
 const POLL_INTERVAL_MS = 2000
-const TIMEOUT_MS = 60000
+const TIMEOUT_MS = 300000  // 5 minutes — first build can take a while
 
 let mainWindow = null
 let loadingWindow = null
@@ -18,7 +19,12 @@ let timeoutTimer = null
 // ── Docker helpers ────────────────────────────────────────────────────────────
 
 function spawnCompose(args) {
-  return spawn('docker', ['compose', '-f', composePath, ...args], { stdio: 'ignore' })
+  const proc = spawn('docker', ['compose', '-f', composePath, '--env-file', envFilePath, ...args], {
+    stdio: ['ignore', 'ignore', 'pipe']
+  })
+  // Log stderr so failures are visible in the system journal / terminal
+  proc.stderr && proc.stderr.on('data', (d) => console.error('[docker-compose]', d.toString().trim()))
+  return proc
 }
 
 function composeUp() {
@@ -191,7 +197,7 @@ function start() {
         const choice = dialog.showMessageBoxSync({
           type: 'error',
           title: 'Startup failed',
-          message: 'Docker stack did not become ready within 60 seconds.',
+          message: 'Docker stack did not become ready within 5 minutes.',
           buttons: ['Retry', 'Quit']
         })
         if (choice === 0) {
