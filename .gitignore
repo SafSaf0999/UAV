@@ -38,6 +38,8 @@ docker/.env
 Papers/
 report/
 paper/
+docs/
+presentation_qa*
 
 # ── Hypothesis test cache ─────────────────────────────────────────────────────
 .hypothesis/
@@ -48,6 +50,20 @@ subprocess
 sys
 *.db
 *.db-shm
+
+# ── Large directories not needed for control center ──────────────────────────
+UAV/
+UAV-dataset-workflow/
+models/
+ml/
+electron/node_modules/
+
+# ── LaTeX build files ─────────────────────────────────────────────────────────
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
 *.db-wal
 
 # ── IDE ───────────────────────────────────────────────────────────────────────

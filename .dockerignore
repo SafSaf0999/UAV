@@ -1,17 +1,62 @@
+# Version control and temp files
 .git
+.gitignore
 .hypothesis
 .pytest_cache
-Papers/
-secrets/
-*.key
-*.crt
+.kiro
+.vscode
 __pycache__
 **/__pycache__
 *.pyc
+*.aux
+*.log
+*.toc
+*.out
+
+# Secrets and certificates
+secrets/
+*.key
+*.crt
+certs/
+
+# Large directories - NOT needed in Docker
+UAV/
+UAV-dataset-workflow/
+models/
+ml/
+docs/
+report/
+*.pdf
+runs/
+
+# Node modules
 node_modules
+**/node_modules
 frontend/node_modules
-.kiro
+electron/
+**/electron/
+
+# Model files
+*.pt
+*.pth
+*.onnx
+*.weights
+
+# Test directories
 edge/tests
 main/aggregation/tests
 main/control-center/tests
 main/signaling/tests
+
+# Papers and documentation (heavy files)
+Papers/
+report/
+report_full.pdf
+presentation_qa*
+
+# Temporary and build files
+*.swp
+*.swo
+*~
+.DS_Store
+*.bak
